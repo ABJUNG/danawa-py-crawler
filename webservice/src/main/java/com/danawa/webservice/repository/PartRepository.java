@@ -1,25 +1,23 @@
 package com.danawa.webservice.repository;
 
 import com.danawa.webservice.domain.Part;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
-import java.util.List; // List import 추가
+import java.util.List;
 
 public interface PartRepository extends JpaRepository<Part, Long> {
 
-    // [추가된 부분 1]
-    // 지정된 카테고리에 속하는 모든 부품을 찾습니다.
-    List<Part> findByCategory(String category);
+    Page<Part> findByCategory(String category, Pageable pageable);
 
-    // [추가된 부분 2]
-    // 지정된 카테고리 내에서 이름에 키워드가 포함된 부품을 검색합니다.
-    List<Part> findByCategoryAndNameContainingIgnoreCase(String category, String keyword);
+    Page<Part> findByCategoryAndNameStartsWith(String category, String manufacturer, Pageable pageable);
 
-    // [추가된 부분]
-    // name 필드에서 keyword가 포함된 데이터를 대소문자 구분 없이 검색합니다.
-    // ex) 'findByNameContainingIgnoreCase' -> SQL: SELECT * FROM parts WHERE name LIKE '%keyword%' (case-insensitive)
-    List<Part> findByNameContainingIgnoreCase(String keyword);
+    Page<Part> findByCategoryAndNameContainingIgnoreCase(String category, String keyword, Pageable pageable);
 
-    // 지정된 카테고리 내에서 특정 제조사(이름으로 시작하는)의 부품을 찾습니다.
-    List<Part> findByCategoryAndNameStartsWith(String category, String manufacturer);
+    // [추가된 부분] JPQL을 사용하여 DB에서 직접 제조사 이름만 중복 없이 가져옵니다. (성능 최적화)
+    @Query("SELECT DISTINCT SUBSTRING_INDEX(p.name, ' ', 1) FROM Part p WHERE p.category = :category ORDER BY 1")
+    List<String> findDistinctManufacturersByCategory(@Param("category") String category);
 }

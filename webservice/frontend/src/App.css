@@ -182,11 +182,30 @@ h1 {
   font-weight: bold;
 }
 
-/* 상세 검색(필터) 영역 */
-.filter-container {
+/* 필터, 정렬, 검색을 묶는 컨테이너 */
+.controls-container {
   display: flex;
   justify-content: center;
+  align-items: center;
+  gap: 10px;
   margin-bottom: 20px;
+}
+
+/* 기존 filter-container 스타일 약간 수정 */
+.filter-container {
+  margin-bottom: 0; 
+}
+
+/* 정렬 메뉴 컨테이너 */
+.sort-container { 
+  margin: 0;
+}
+
+.sort-select {
+  padding: 8px 12px;
+  font-size: 16px;
+  border-radius: 5px;
+  border: 1px solid #ccc;
 }
 
 .filter-select {
@@ -195,4 +214,38 @@ h1 {
   border-radius: 5px;
   border: 1px solid #ccc;
   min-width: 200px;
+}
+/* 페이지네이션 */
+.pagination-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-top: 40px;
+  margin-bottom: 40px;
+  gap: 8px;
+}
+
+.page-btn {
+  padding: 10px 15px;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  background-color: #fff;
+  cursor: pointer;
+  font-size: 45px;
+  font-weight: 500;
+  text-align: center;
+  transition: all 0.2s;
+
+}
+
+.page-btn:hover {
+  background-color: #f0f0f0;
+  border-color: #888;
+}
+
+.page-btn.active {
+  background-color: #007bff;
+  color: white;
+  border-color: #007bff;
+  font-weight: bold;
 }
