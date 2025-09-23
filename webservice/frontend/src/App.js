@@ -8,35 +8,42 @@ const ITEMS_PER_PAGE = 20;
 function App() {
   // --- State Variables ---
   const [parts, setParts] = useState([]);
+  const [isLoading, setIsLoading] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState('CPU');
-  const [manufacturers, setManufacturers] = useState([]);
-  const [selectedManufacturer, setSelectedManufacturer] = useState('');
+  
+  const [availableFilters, setAvailableFilters] = useState({});
+  const [selectedFilters, setSelectedFilters] = useState({});
+  
   const [searchTerm, setSearchTerm] = useState('');
   const [history, setHistory] = useState([]);
   const [isHistoryVisible, setIsHistoryVisible] = useState(false);
   const [currentPage, setCurrentPage] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
-  const [sortOption, setSortOption] = useState('createdAt,desc'); // 정렬 옵션 state 추가
+  const [sortOption, setSortOption] = useState('createdAt,desc');
 
   // --- API 호출 함수 ---
-  const fetchParts = useCallback(async (category, manufacturer, keyword, page, sort) => {
+  const fetchParts = useCallback(async (category, filters, keyword, page, sort) => {
+    setIsLoading(true);
     try {
-      const params = new URLSearchParams({
-        category: category,
-        page: page,
-        size: ITEMS_PER_PAGE,
-        sort: sort, // API 요청에 sort 파라미터 추가
-      });
+      const params = new URLSearchParams();
+      params.append('category', category);
+      params.append('page', page);
+      params.append('size', ITEMS_PER_PAGE);
+      params.append('sort', sort);
 
-      let url = '/api/parts';
-      if (keyword) {
-        url = '/api/parts/search';
-        params.append('keyword', keyword);
-      } else if (manufacturer) {
-        params.append('manufacturer', manufacturer);
+      for (const key in filters) {
+        if (filters[key] && filters[key].length > 0) {
+            filters[key].forEach(value => {
+                params.append(key, value);
+            });
+        }
       }
       
-      const response = await axios.get(`${url}?${params.toString()}`);
+      if (keyword) {
+        params.append('keyword', keyword);
+      }
+      
+      const response = await axios.get(`/api/parts?${params.toString()}`);
       
       setParts(response.data.content);
       setTotalPages(response.data.totalPages);
@@ -49,11 +56,12 @@ function App() {
       console.error("데이터를 불러오는 중 오류가 발생했습니다.", error);
       setParts([]);
       setTotalPages(0);
+    } finally {
+      setIsLoading(false);
     }
-  }, [history]); // useCallback의 의존성 배열에 history 추가
+  }, [history]);
 
   // --- useEffect Hooks ---
-
   useEffect(() => {
     const savedHistory = localStorage.getItem('searchHistory');
     if (savedHistory) {
@@ -68,58 +76,94 @@ function App() {
   useEffect(() => {
     const loadCategoryData = async () => {
       try {
-        const manuRes = await axios.get(`/api/manufacturers?category=${selectedCategory}`);
-        setManufacturers(manuRes.data);
+        const filtersRes = await axios.get(`/api/filters?category=${selectedCategory}`);
+        setAvailableFilters(filtersRes.data);
       } catch (error) {
-        console.error("제조사 목록을 불러오는 중 오류가 발생했습니다.", error);
-        setManufacturers([]);
+        console.error("필터 목록을 불러오는 중 오류가 발생했습니다.", error);
+        setAvailableFilters({});
       }
+      
+      setSelectedFilters({});
       setCurrentPage(0);
-      setSelectedManufacturer('');
       setSearchTerm('');
-      // 카테고리 변경 시 현재 정렬 옵션을 유지하며 데이터 요청
-      fetchParts(selectedCategory, '', '', 0, sortOption); 
+      fetchParts(selectedCategory, {}, '', 0, sortOption);
     };
     loadCategoryData();
-  }, [selectedCategory, fetchParts]);
-
+  }, [selectedCategory, sortOption, fetchParts]);
 
   // --- Event Handlers ---
+  const handleCategoryClick = (category) => { setSelectedCategory(category); };
 
-  const handleCategoryClick = (category) => {
-    setSelectedCategory(category);
-  };
+  const handleFilterChange = (filterType, value) => {
+    const newFilters = { ...selectedFilters };
+    const currentValues = newFilters[filterType] || [];
 
-  const handleManufacturerChange = (manufacturer) => {
-    setSelectedManufacturer(manufacturer);
+    if (currentValues.includes(value)) {
+      newFilters[filterType] = currentValues.filter(item => item !== value);
+    } else {
+      newFilters[filterType] = [...currentValues, value];
+    }
+    
+    if (newFilters[filterType].length === 0) {
+      delete newFilters[filterType];
+    }
+
+    setSelectedFilters(newFilters);
     setCurrentPage(0);
-    fetchParts(selectedCategory, manufacturer, '', 0, sortOption);
+    fetchParts(selectedCategory, newFilters, '', 0, sortOption);
   };
 
   const handleSearch = () => {
     setCurrentPage(0);
-    fetchParts(selectedCategory, selectedManufacturer, searchTerm, 0, sortOption);
+    fetchParts(selectedCategory, selectedFilters, searchTerm, 0, sortOption);
   };
   
   const handleHistoryClick = (keyword) => {
     setSearchTerm(keyword);
     setCurrentPage(0);
-    fetchParts(selectedCategory, selectedManufacturer, keyword, 0, sortOption);
+    fetchParts(selectedCategory, selectedFilters, keyword, 0, sortOption);
   };
 
-  const handleDeleteHistory = (itemToDelete) => {
-    setHistory(history.filter(item => item !== itemToDelete));
-  };
+  const handleDeleteHistory = (itemToDelete) => { setHistory(history.filter(item => item !== itemToDelete)); };
   
   const handlePageChange = (pageNumber) => {
     setCurrentPage(pageNumber);
-    fetchParts(selectedCategory, selectedManufacturer, searchTerm, pageNumber, sortOption);
+    fetchParts(selectedCategory, selectedFilters, searchTerm, pageNumber, sortOption);
   };
   
   const handleSortChange = (sortValue) => {
     setSortOption(sortValue);
     setCurrentPage(0);
-    fetchParts(selectedCategory, selectedManufacturer, searchTerm, 0, sortValue);
+    fetchParts(selectedCategory, selectedFilters, searchTerm, 0, sortValue);
+  };
+
+  const renderFilters = () => {
+    const filterMap = {
+      manufacturers: '제조사', socketTypes: '소켓 타입', coreTypes: '코어 종류',
+      ramCapacities: 'RAM 용량', chipsets: '칩셋 제조사',
+    };
+
+    return Object.keys(filterMap).map(filterKey => {
+      if (availableFilters[filterKey] && availableFilters[filterKey].length > 0) {
+        return (
+          <div key={filterKey} className="filter-group">
+            <strong className="filter-title">{filterMap[filterKey]}</strong>
+            <div className="filter-options">
+              {availableFilters[filterKey].sort().map(value => (
+                <label key={value} className="filter-label">
+                  <input
+                    type="checkbox"
+                    checked={(selectedFilters[filterKey] || []).includes(value)}
+                    onChange={() => handleFilterChange(filterKey, value)}
+                  /> {value}
+                </label>
+              ))}
+            </div>
+          </div>
+        );
+      }
+      return null;
+    });
   };
 
   // --- JSX Rendering ---
@@ -139,23 +183,13 @@ function App() {
         ))}
       </nav>
       
-      <div className="controls-container">
-        <div className="filter-container">
-          <select
-            className="filter-select"
-            value={selectedManufacturer}
-            onChange={(e) => handleManufacturerChange(e.target.value)}
-          >
-            <option value="">-- 제조사 전체 --</option>
-            {manufacturers.map(manu => (
-              <option key={manu} value={manu}>{manu}</option>
-            ))}
-          </select>
-        </div>
-        
+      <div className="controls-container-grid">
+        {renderFilters()}
+
         <div className="sort-container">
+          <strong className="filter-title">정렬</strong>
           <select 
-            className="sort-select"
+            className="filter-select"
             value={sortOption}
             onChange={(e) => handleSortChange(e.target.value)}
           >
@@ -194,17 +228,23 @@ function App() {
         )}
       </div>
 
-      <div className="parts-list">
-        {parts.map(part => (
-          <a key={part.id} href={part.link} target="_blank" rel="noopener noreferrer" className="part-card">
-            <img src={part.imgSrc} alt={part.name} className="part-image" />
-            <div className="part-info">
-              <h2 className="part-name">{part.name}</h2>
-              <p className="part-price">{part.price.toLocaleString()}원</p>
-            </div>
-          </a>
-        ))}
-      </div>
+      {isLoading ? (
+        <div className="spinner-container"><div className="spinner"></div></div>
+      ) : (
+        <div className="parts-list">
+          {parts.map(part => (
+            <a key={part.id} href={part.link} target="_blank" rel="noopener noreferrer" className="card-link">
+              <div className="part-card">
+                <img src={part.imgSrc} alt={part.name} className="part-image" />
+                <div className="part-info">
+                  <h2 className="part-name">{part.name}</h2>
+                  <p className="part-price">{part.price.toLocaleString()}원</p>
+                </div>
+              </div>
+            </a>
+          ))}
+        </div>
+      )}
       
       <div className="pagination-container">
         {totalPages > 0 && Array.from({ length: totalPages }, (_, i) => i).map(pageNumber => (

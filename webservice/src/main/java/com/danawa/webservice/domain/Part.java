@@ -10,7 +10,7 @@ import java.time.LocalDateTime;
 @Getter
 @NoArgsConstructor
 @Entity
-@Table(name = "parts") // 실제 DB 테이블 이름이 'parts'임을 명시
+@Table(name = "parts")
 public class Part {
 
     @Id
@@ -26,17 +26,31 @@ public class Part {
     @Column(nullable = false)
     private int price;
 
-
     @Column(length = 512, nullable = false, unique = true)
     private String link;
 
-    @Column(name = "img_src", length = 512) // DB 컬럼명과 필드명이 다를 경우 명시
+    @Column(name = "img_src", length = 512)
     private String imgSrc;
+
+    // ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼
+    // [추가된 부분] DB에 추가했던 컬럼들을 Entity에도 추가합니다.
+    @Column(name = "socket")
+    private String socket;
+
+    @Column(name = "core_type")
+    private String coreType;
+
+    @Column(name = "ram_capacity")
+    private String ramCapacity;
+
+    @Column(name = "chipset")
+    private String chipset;
+    // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
 
     @Column(name = "updated_at")
-    @UpdateTimestamp // 데이터가 업데이트될 때마다 자동으로 현재 시간 저장
+    @UpdateTimestamp
     private LocalDateTime updatedAt;
 }
