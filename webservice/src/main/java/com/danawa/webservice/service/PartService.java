@@ -2,6 +2,9 @@ package com.danawa.webservice.service;
 
 import com.danawa.webservice.domain.Part;
 import com.danawa.webservice.repository.PartRepository;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
+import jakarta.persistence.Query;
 import jakarta.persistence.criteria.Predicate;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -11,9 +14,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.MultiValueMap;
 
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Service
 @Transactional(readOnly = true)
@@ -22,85 +25,132 @@ public class PartService {
 
     private final PartRepository partRepository;
 
+    @PersistenceContext
+    private final EntityManager em;
+
+    private static final Map<String, List<String>> FILTERABLE_COLUMNS = Map.of(
+            "CPU", List.of("manufacturer", "codename", "cpuSeries", "cpuClass", "socket", "cores", "threads", "integratedGraphics"),
+            "쿨러", List.of("manufacturer", "productType", "coolingMethod", "airCoolingForm", "coolerHeight", "radiatorLength", "fanSize", "fanConnector"),
+            "메인보드", List.of("manufacturer", "socket", "chipset", "formFactor", "memorySpec", "memorySlots", "vgaConnection", "m2Slots", "wirelessLan"),
+            // [수정] memory_spec -> memorySpec (Java 필드명)으로 오타 수정
+            "RAM", List.of("manufacturer", "deviceType", "productClass", "capacity", "ramCount", "clockSpeed", "ramTiming", "heatsinkPresence"),
+            "그래픽카드", List.of("manufacturer", "nvidiaChipset", "amdChipset", "intelChipset", "gpuInterface", "gpuMemoryCapacity", "outputPorts", "recommendedPsu", "fanCount", "gpuLength"),
+            "SSD", List.of("manufacturer", "formFactor", "ssdInterface", "capacity", "memoryType", "ramMounted", "sequentialRead", "sequentialWrite"),
+            "HDD", List.of("manufacturer", "hddSeries", "diskCapacity", "rotationSpeed", "bufferCapacity", "hddWarranty"),
+            "케이스", List.of("manufacturer", "productType", "caseSize", "supportedBoard", "sidePanel", "psuLength", "vgaLength", "cpuCoolerHeightLimit")
+    );
+
+
+    public Map<String, Set<String>> getAvailableFiltersForCategory(String category) {
+        Map<String, Set<String>> availableFilters = new HashMap<>();
+        List<String> columns = FILTERABLE_COLUMNS.get(category);
+
+        if (columns == null) return availableFilters;
+
+        for (String columnFieldName : columns) {
+            if ("coolerHeight".equals(columnFieldName) && "쿨러".equals(category)) {
+                Set<String> heightRanges = getHeightRanges();
+                if (!heightRanges.isEmpty()) {
+                    availableFilters.put("coolerHeight", heightRanges);
+                }
+                continue;
+            }
+
+            // [개선] Native SQL 대신 JPQL을 사용하여 안정성 강화
+            String jpql = String.format("SELECT DISTINCT p.%s FROM Part p WHERE p.category = :category AND p.%s IS NOT NULL AND p.%s != ''",
+                    columnFieldName, columnFieldName, columnFieldName);
+
+            Query query = em.createQuery(jpql, String.class);
+            query.setParameter("category", category);
+
+            @SuppressWarnings("unchecked")
+            List<String> results = query.getResultList();
+
+            if (!results.isEmpty()) {
+                availableFilters.put(columnFieldName, new HashSet<>(results));
+            }
+        }
+        return availableFilters;
+    }
+
+    private Set<String> getHeightRanges() {
+        // 이 로직은 이미 완벽하게 구현되어 있습니다.
+        Query query = em.createNativeQuery("SELECT DISTINCT CAST(cooler_height AS REAL) FROM parts WHERE category = '쿨러' AND cooler_height IS NOT NULL", Double.class);
+        @SuppressWarnings("unchecked")
+        List<Double> heights = query.getResultList();
+
+        Set<String> ranges = new TreeSet<>();
+        for (Double h : heights) {
+            if (h >= 200) ranges.add("200~mm");
+            else if (h >= 170) ranges.add("170~199mm");
+            else if (h >= 160) ranges.add("160~169mm");
+            else if (h >= 150) ranges.add("150~159mm");
+            else if (h >= 125) ranges.add("125~149mm");
+            else if (h >= 100) ranges.add("100~124mm");
+            else if (h >= 75) ranges.add("75~99mm");
+            else if (h >= 50) ranges.add("50~74mm");
+            else if (h >= 19) ranges.add("19~49mm");
+            else if (h >= 16) ranges.add("16~18mm");
+            else if (h >= 13) ranges.add("13~15mm");
+            else if (h >= 10) ranges.add("10~12mm");
+            else if (h >= 7) ranges.add("7~9mm");
+            else if (h >= 4) ranges.add("4~6mm");
+            else if (h > 0) ranges.add("~3mm");
+        }
+        return ranges;
+    }
+
     public Page<Part> findByFilters(MultiValueMap<String, String> filters, Pageable pageable) {
         Specification<Part> spec = createSpecification(filters);
         return partRepository.findAll(spec, pageable);
     }
 
-    /**
-     * 필터 맵을 기반으로 JPA Specification (동적 쿼리 조건)을 생성합니다.
-     * 이제 name을 분석하지 않고, 각각의 전용 컬럼을 직접 조회하여 매우 빠릅니다.
-     */
     private Specification<Part> createSpecification(MultiValueMap<String, String> filters) {
-        return (root, query, criteriaBuilder) -> {
-            Predicate predicate = criteriaBuilder.conjunction();
+        return (root, query, cb) -> {
+            Predicate predicate = cb.conjunction();
+            List<String> allFilterKeys = new ArrayList<>();
+            FILTERABLE_COLUMNS.values().forEach(allFilterKeys::addAll);
 
             for (Map.Entry<String, List<String>> entry : filters.entrySet()) {
                 String key = entry.getKey();
                 List<String> values = entry.getValue();
 
-                if (values == null || values.isEmpty() || values.get(0).isEmpty()) {
-                    continue;
-                }
+                if (values == null || values.isEmpty() || values.get(0).isEmpty()) continue;
 
-                switch (key) {
-                    case "category":
-                        predicate = criteriaBuilder.and(predicate, root.get("category").in(values));
-                        break;
-                    case "manufacturer":
-                        // 제조사는 여전히 name 필드의 시작 부분으로 검색합니다.
-                        Predicate[] manufacturerPredicates = values.stream()
-                                .map(val -> criteriaBuilder.like(root.get("name"), val + "%"))
-                                .toArray(Predicate[]::new);
-                        predicate = criteriaBuilder.and(predicate, criteriaBuilder.or(manufacturerPredicates));
-                        break;
-                    case "socketType":
-                        // 이제 'socket' 컬럼을 직접 조회합니다.
-                        predicate = criteriaBuilder.and(predicate, root.get("socket").in(values));
-                        break;
-                    case "coreType":
-                        // 이제 'core_type' 컬럼을 직접 조회합니다.
-                        predicate = criteriaBuilder.and(predicate, root.get("coreType").in(values));
-                        break;
-                    case "ramCapacity":
-                        // 이제 'ram_capacity' 컬럼을 직접 조회합니다.
-                        predicate = criteriaBuilder.and(predicate, root.get("ramCapacity").in(values));
-                        break;
-                    case "chipset":
-                        // 이제 'chipset' 컬럼을 직접 조회합니다.
-                        predicate = criteriaBuilder.and(predicate, root.get("chipset").in(values));
-                        break;
-                    case "keyword":
-                        predicate = criteriaBuilder.and(predicate, criteriaBuilder.like(root.get("name"), "%" + values.get(0) + "%"));
-                        break;
+                if (key.equals("category")) {
+                    predicate = cb.and(predicate, root.get("category").in(values));
+                } else if (key.equals("keyword")) {
+                    predicate = cb.and(predicate, cb.like(root.get("name"), "%" + values.get(0) + "%"));
+                }
+                // [수정] 쿨러 높이 구간 필터링을 위한 특별 로직 추가
+                else if (key.equals("coolerHeight")) {
+                    Predicate[] heightPredicates = values.stream().map(range -> {
+                        // 숫자를 추출하기 위한 정규식
+                        Matcher m = Pattern.compile("(\\d+(\\.\\d+)?)").matcher(range);
+                        List<Double> nums = new ArrayList<>();
+                        while (m.find()) {
+                            nums.add(Double.parseDouble(m.group(1)));
+                        }
+
+                        if (range.startsWith("~") && !nums.isEmpty()) { // ~3mm
+                            return cb.lessThanOrEqualTo(root.get("coolerHeight"), nums.get(0));
+                        } else if (range.contains("~mm") && !nums.isEmpty()) { // 200~mm
+                            return cb.greaterThanOrEqualTo(root.get("coolerHeight"), nums.get(0));
+                        } else if (nums.size() == 2) { // 170~199mm
+                            return cb.between(root.get("coolerHeight"), nums.get(0), nums.get(1));
+                        }
+                        return null;
+                    }).filter(Objects::nonNull).toArray(Predicate[]::new);
+
+                    if (heightPredicates.length > 0) {
+                        predicate = cb.and(predicate, cb.or(heightPredicates));
+                    }
+                }
+                else if (allFilterKeys.contains(key)) {
+                    predicate = cb.and(predicate, root.get(key).in(values));
                 }
             }
             return predicate;
         };
     }
-
-    // --- 이하 필터 옵션 생성 로직 (Repository 직접 호출로 단순화) ---
-
-    public List<String> getManufacturersByCategory(String category) {
-        return partRepository.findDistinctManufacturersByCategory(category);
-    }
-
-    public Set<String> getSocketTypes(String category) {
-        return partRepository.findDistinctSocketByCategory(category);
-    }
-
-    public Set<String> getRamCapacities(String category) {
-        return partRepository.findDistinctRamCapacityByCategory(category);
-    }
-
-    public Set<String> getChipsetManufacturers(String category) {
-        return partRepository.findDistinctChipsetByCategory(category);
-    }
-
-    public Set<String> getCoreTypes(String category) {
-        return partRepository.findDistinctCoreTypeByCategory(category);
-    }
-
-    // [삭제] 내장그래픽 필터는 현재 DB에 컬럼이 없으므로 잠시 제외합니다.
-    // public List<String> getIntegratedGraphicsOptions() { ... }
 }

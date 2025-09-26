@@ -3,31 +3,14 @@ package com.danawa.webservice.repository;
 import com.danawa.webservice.domain.Part;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
-import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.repository.query.Param;
 
-import java.util.List;
-import java.util.Set;
-
+/**
+ * JpaSpecificationExecutor는 PartService의 동적 필터링(findByFilters)을 위해 필요합니다.
+ */
 public interface PartRepository extends JpaRepository<Part, Long>, JpaSpecificationExecutor<Part> {
 
-    @Query("SELECT DISTINCT SUBSTRING_INDEX(p.name, ' ', 1) FROM Part p WHERE p.category = :category ORDER BY 1")
-    List<String> findDistinctManufacturersByCategory(@Param("category") String category);
+    // [수정] PartService에서 EntityManager로 직접 동적 쿼리를 생성하므로,
+    // 이 곳에 있던 모든 커스텀 @Query 메서드들은 삭제합니다.
+    // Repository는 Spring Data JPA가 제공하는 기본 기능에만 집중하게 됩니다.
 
-    List<Part> findByCategory(String category);
-
-    // ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼
-    // [수정된 부분] DB 컬럼 이름(snake_case) -> 자바 필드 이름(camelCase)
-    @Query("SELECT DISTINCT p.socket FROM Part p WHERE p.category = :category AND p.socket IS NOT NULL ORDER BY p.socket")
-    Set<String> findDistinctSocketByCategory(@Param("category") String category);
-
-    @Query("SELECT DISTINCT p.coreType FROM Part p WHERE p.category = :category AND p.coreType IS NOT NULL ORDER BY p.coreType")
-    Set<String> findDistinctCoreTypeByCategory(@Param("category") String category);
-
-    @Query("SELECT DISTINCT p.ramCapacity FROM Part p WHERE p.category = :category AND p.ramCapacity IS NOT NULL ORDER BY p.ramCapacity")
-    Set<String> findDistinctRamCapacityByCategory(@Param("category") String category);
-
-    @Query("SELECT DISTINCT p.chipset FROM Part p WHERE p.category = :category AND p.chipset IS NOT NULL ORDER BY p.chipset")
-    Set<String> findDistinctChipsetByCategory(@Param("category") String category);
-    // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 }
