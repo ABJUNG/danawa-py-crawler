@@ -5,8 +5,8 @@ import './App.css';
 const CATEGORIES = ['CPU', '쿨러', '메인보드', 'RAM', '그래픽카드', 'SSD', 'HDD', '파워', '케이스'];
 const ITEMS_PER_PAGE = 20;
 
+// [수정] 중복 키를 정리한 최종 FILTER_LABELS
 const FILTER_LABELS = {
-  // 공통
   manufacturer: '제조사',
   // CPU
   codename: '코드네임',
@@ -15,9 +15,9 @@ const FILTER_LABELS = {
   socket: '소켓 구분',
   cores: '코어 수',
   threads: '스레드 수',
-  integrated_graphics: '내장그래픽 탑재 여부',
-  //쿨러
-  productType: '제품 종류',
+  integratedGraphics: '내장그래픽 탑재 여부',
+  // 쿨러
+  productType: '제품 분류',
   coolingMethod: '냉각 방식',
   airCoolingForm: '공랭 형태',
   coolerHeight: '쿨러 높이',
@@ -40,7 +40,7 @@ const FILTER_LABELS = {
   vgaConnection: 'VGA 연결',
   m2Slots: 'M.2',
   wirelessLan: '무선랜 종류',
-  // [추가] 그래픽카드
+  // 그래픽카드
   nvidiaChipset: 'NVIDIA 칩셋',
   amdChipset: 'AMD 칩셋',
   intelChipset: '인텔 칩셋',
@@ -50,130 +50,65 @@ const FILTER_LABELS = {
   recommendedPsu: '권장 파워용량',
   fanCount: '팬 개수',
   gpuLength: '가로(길이)',
-  // [추가] SSD
-  formFactor: '폼팩터',
+  // SSD
   ssdInterface: '인터페이스',
-  capacity: '용량',
   memoryType: '메모리 타입',
   ramMounted: 'RAM 탑재',
   sequentialRead: '순차읽기',
   sequentialWrite: '순차쓰기',
-  // [추가] HDD
+  // HDD
   hddSeries: '시리즈 구분',
   diskCapacity: '디스크 용량',
   rotationSpeed: '회전수',
   bufferCapacity: '버퍼 용량',
   hddWarranty: 'A/S 정보',
-  // [추가] 케이스
+  // 케이스
   caseSize: '케이스 크기',
   supportedBoard: '지원보드 규격',
   sidePanel: '측면 개폐 방식',
   psuLength: '파워 장착 길이',
   vgaLength: 'VGA 길이',
   cpuCoolerHeightLimit: 'CPU쿨러 높이',
+  // 파워
+  ratedOutput: '정격출력',
+  eightyPlusCert: '80PLUS인증',
+  etaCert: 'ETA인증',
+  cableConnection: '케이블연결',
+  pcie16pin: 'PCIe 16핀(12+4)',
 };
 
-// [신설] 필터를 표시할 순서를 정의하는 배열
-const CPU_FILTER_ORDER = [
-    'manufacturer',
-    'codename',
-    'cpuSeries',
-    'cpuClass',
-    'socket',
-    'cores',
-    'threads',
-    'integrated_graphics'
-];
-// [신설] 쿨러 필터 표시 순서 정의
-const COOLER_FILTER_ORDER = [
-    'manufacturer',
-    'productType',
-    'coolingMethod',
-    'airCoolingForm',
-    'coolerHeight',
-    'radiatorLength',
-    'fanSize',
-    'fanConnector'
-];
+// [수정] 모든 카테고리 필터 순서를 하나의 객체로 통합
+const FILTER_ORDER_MAP = {
+  CPU: ['manufacturer', 'codename', 'cpuSeries', 'cpuClass', 'socket', 'cores', 'threads', 'integratedGraphics'],
+  쿨러: ['manufacturer', 'productType', 'coolingMethod', 'airCoolingForm', 'coolerHeight', 'radiatorLength', 'fanSize', 'fanConnector'],
+  메인보드: ['manufacturer', 'socket', 'chipset', 'formFactor', 'memorySpec', 'memorySlots', 'vgaConnection', 'm2Slots', 'wirelessLan'],
+  RAM: ['manufacturer', 'deviceType', 'productClass', 'capacity', 'ramCount', 'clockSpeed', 'ramTiming', 'heatsinkPresence'],
+  그래픽카드: ['manufacturer', 'nvidiaChipset', 'amdChipset', 'intelChipset', 'gpuInterface', 'gpuMemoryCapacity', 'outputPorts', 'recommendedPsu', 'fanCount', 'gpuLength'],
+  SSD: ['manufacturer', 'formFactor', 'ssdInterface', 'capacity', 'memoryType', 'ramMounted', 'sequentialRead', 'sequentialWrite'],
+  HDD: ['manufacturer', 'hddSeries', 'diskCapacity', 'rotationSpeed', 'bufferCapacity', 'hddWarranty'],
+  케이스: ['manufacturer', 'productType', 'caseSize', 'supportedBoard', 'sidePanel', 'psuLength', 'vgaLength', 'cpuCoolerHeightLimit'],
+  파워: ['manufacturer', 'productType', 'ratedOutput', 'eightyPlusCert', 'etaCert', 'cableConnection', 'pcie16pin']
+};
 
-// [신설] 메인보드 필터 표시 순서 정의
-const MOTHERBOARD_FILTER_ORDER = [
-    'manufacturer',
-    'socket',
-    'chipset',
-    'formFactor',
-    'memorySpec',
-    'memorySlots',
-    'vgaConnection',
-    'm2Slots',
-    'wirelessLan'
-];
-
-// [신설] RAM 필터 표시 순서 정의
-const RAM_FILTER_ORDER = [
-    'manufacturer',
-    'deviceType',
-    'productClass',
-    'capacity',
-    'ramCount',
-    'clockSpeed',
-    'ramTiming',
-    'heatsinkPresence'
-];
-
-// [신설] 그래픽카드 필터 표시 순서 정의
-const VGA_FILTER_ORDER = [
-    'manufacturer',
-    'nvidiaChipset',
-    'amdChipset',
-    'intelChipset',
-    'gpuInterface',
-    'gpuMemoryCapacity',
-    'outputPorts',
-    'recommendedPsu',
-    'fanCount',
-    'gpuLength'
-];
-
-const SSD_FILTER_ORDER = [
-    'manufacturer',
-    'formFactor',
-    'ssdInterface',
-    'capacity',
-    'memoryType',
-    'ramMounted',
-    'sequentialRead',
-    'sequentialWrite'
-];
-
-// [신설] HDD 필터 표시 순서 정의
-const HDD_FILTER_ORDER = [
-    'manufacturer',
-    'hddSeries',
-    'diskCapacity',
-    'rotationSpeed',
-    'bufferCapacity',
-    'hddWarranty'
-];
-
-// [신설] 케이스 필터 표시 순서 정의
-const CASE_FILTER_ORDER = [
-    'manufacturer',
-    'productType',
-    'caseSize',
-    'supportedBoard',
-    'sidePanel',
-    'psuLength',
-    'vgaLength',
-    'cpuCoolerHeightLimit'
-];
-
-// 다른 카테고리의 필터 순서도 필요하다면 여기에 추가할 수 있습니다.
-// const RAM_FILTER_ORDER = ['manufacturer', 'capacity', 'memory_spec'];
-
+// [수정] App 컴포넌트 바깥으로 헬퍼 함수 분리
+const generateSpecString = (part) => {
+  let specs = [];
+  switch (part.category) {
+    case 'CPU': specs = [part.manufacturer, part.socket, part.cores, part.threads, part.cpuSeries, part.codename]; break;
+    case '쿨러': specs = [part.manufacturer, part.coolingMethod, part.airCoolingForm, part.fanSize, part.radiatorLength]; break;
+    case '메인보드': specs = [part.manufacturer, part.socket, part.chipset, part.formFactor, part.memorySpec]; break;
+    case 'RAM': specs = [part.manufacturer, part.productClass, part.capacity, part.clockSpeed, part.ramTiming]; break;
+    case '그래픽카드': specs = [part.manufacturer, (part.nvidiaChipset || part.amdChipset || part.intelChipset), part.gpuMemoryCapacity, part.gpuLength]; break;
+    case 'SSD': specs = [part.manufacturer, part.formFactor, part.ssdInterface, part.capacity, part.sequentialRead]; break;
+    case 'HDD': specs = [part.manufacturer, part.diskCapacity, part.rotationSpeed, part.bufferCapacity]; break;
+    case '케이스': specs = [part.manufacturer, part.caseSize, part.supportedBoard, part.cpuCoolerHeightLimit, part.vgaLength]; break;
+    case '파워': specs = [part.manufacturer, part.ratedOutput, part.eightyPlusCert, part.cableConnection]; break;
+    default: return '';
+  }
+  return specs.filter(Boolean).join(' / ');
+};
 
 function App() {
-  // --- State 및 API 호출 함수는 기존과 동일 ---
   const [parts, setParts] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState('CPU');
@@ -250,12 +185,12 @@ function App() {
       setSelectedFilters({});
       setCurrentPage(0);
       setSearchTerm('');
-      // fetchParts가 useEffect의 의존성 배열에 있으면 무한 루프가 발생할 수 있어 분리 호출
     };
+
     loadCategoryData().then(() => {
         fetchParts(selectedCategory, {}, '', 0, sortOption);
     });
-  }, [selectedCategory, sortOption]);
+  }, [selectedCategory, sortOption, fetchParts]);
 
   const handleCategoryClick = (category) => { setSelectedCategory(category); };
 
@@ -304,76 +239,54 @@ function App() {
     setSortOption(sortValue);
   };
 
-  // --- [수정] renderFilters 함수 ---
-  // 정의된 순서(FILTER_ORDER)에 따라 필터를 렌더링하도록 변경
   const renderFilters = () => {
-        let filterOrder = [];
-        if (selectedCategory === 'CPU') {
-            filterOrder = CPU_FILTER_ORDER;
-        } else if (selectedCategory === '쿨러') {
-            filterOrder = COOLER_FILTER_ORDER;
-        } else if (selectedCategory === '메인보드') {
-            filterOrder = MOTHERBOARD_FILTER_ORDER;
-        } else if (selectedCategory === 'RAM') {
-            filterOrder = RAM_FILTER_ORDER;
-        } else if (selectedCategory === '그래픽카드') {
-            filterOrder = VGA_FILTER_ORDER;
-        } else if (selectedCategory === 'SSD') {
-            filterOrder = SSD_FILTER_ORDER;
-        } else if (selectedCategory === 'HDD') {
-            filterOrder = HDD_FILTER_ORDER;
-        } else if (selectedCategory === '케이스') {
-            filterOrder = CASE_FILTER_ORDER;
-        }
-
-    // 다른 카테고리 순서 추가
-    // else if (selectedCategory === 'RAM') {
-    //     filterOrder = RAM_FILTER_ORDER;
-    // }
+    const filterOrder = FILTER_ORDER_MAP[selectedCategory] || Object.keys(availableFilters);
 
     return filterOrder.map(filterKey => {
       const values = availableFilters[filterKey];
       
-      // API 응답에 해당 필터가 없거나 값이 없으면 렌더링하지 않음
       if (!values || values.length === 0) {
         return null;
       }
       
       const label = FILTER_LABELS[filterKey] || filterKey;
 
-      if (filterKey === 'fanSize') {
-                values.sort((a, b) => {
-                    const numA = parseInt(a, 10);
-                    const numB = parseInt(b, 10);
-                    return numB - numA;
-                });
-            } else {
-                values.sort(); // 나머지 필드는 가나다순 정렬
-            }
-
-            return (
-                <div key={filterKey} className="filter-group">
-                  <strong className="filter-title">{label}</strong>
-                  <div className="filter-options">
-                    {/* [수정] 정렬된 values를 사용하도록 변경 */}
-                    {values.map(value => (
-                      <label key={value} className="filter-label">
-                        <input
-                          type="checkbox"
-                          checked={(selectedFilters[filterKey] || []).includes(value)}
-                          onChange={() => handleFilterChange(filterKey, value)}
-                        /> {value}
-                      </label>
-                    ))}
-                  </div>
-                </div>
-            );
+      // 숫자 기반 정렬이 필요한 필터들을 위한 로직
+      if (['fanSize', 'capacity', 'gpuMemoryCapacity'].includes(filterKey)) {
+        values.sort((a, b) => {
+            const numA = parseInt(a, 10);
+            const numB = parseInt(b, 10);
+            return numB - numA;
         });
-    };
+      } else {
+        values.sort();
+      }
+
+      return (
+        <div key={filterKey} className="filter-group">
+          <strong className="filter-title">{label}</strong>
+          <div className="filter-options">
+            {values.map(value => (
+              <label key={value} className="filter-label">
+                <input
+                  type="checkbox"
+                  checked={(selectedFilters[filterKey] || []).includes(value)}
+                  onChange={() => handleFilterChange(filterKey, value)}
+                /> {value}
+              </label>
+            ))}
+          </div>
+        </div>
+      );
+    });
+  };
 
   return (
     <div className="app-container">
-      <h1>🖥️ PC 부품 가격 정보 (다나와)</h1>
+      <header>
+        <h1>💻 다 나올까? 💻</h1>
+        <p className="app-subtitle">웹 크롤링을 이용한 PC 부품 가격 비교 앱</p>
+      </header>
 
       <nav className="category-nav">
         {CATEGORIES.map(category => (
@@ -387,69 +300,84 @@ function App() {
         ))}
       </nav>
       
-      <div className="controls-container-grid">
-        {renderFilters()}
+      <div className="controls-container">
+        <h2 className="controls-title">상세 검색</h2>
+        <div className="controls-container-grid">
+          {renderFilters()}
 
-        {/* [수정] 정렬 옵션 순서 변경 */}
-        <div className="sort-container">
-          <strong className="filter-title">정렬</strong>
-          <select 
-            className="filter-select"
-            value={sortOption}
-            onChange={(e) => handleSortChange(e.target.value)}
-          >
-            <option value="reviewCount,desc">인기상품순</option>
-            <option value="createdAt,desc">신상품순</option>
-            <option value="price,asc">낮은가격순</option>
-            <option value="price,desc">높은가격순</option>
-          </select>
+          <form className="search-container" onSubmit={handleSearch}>
+            <strong className="filter-title">상품명 검색</strong>
+            <div className="search-bar">
+              <input
+                type="text"
+                placeholder={`${selectedCategory} 내에서 검색...`}
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                onFocus={() => setIsHistoryVisible(true)}
+                onBlur={() => setTimeout(() => setIsHistoryVisible(false), 200)}
+              />
+              <button type="submit">검색</button>
+            </div>
+            
+            {isHistoryVisible && history.length > 0 && (
+              <div className="history-container">
+                <ul className="history-list">
+                  {history.map((item, index) => (
+                    <li key={index} className="history-item" onMouseDown={() => handleHistoryClick(item)}>
+                      <span className="history-term">{item}</span>
+                      <button className="delete-btn" onMouseDown={(e) => handleDeleteHistory(e, item)}>X</button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </form>
+
+          <div className="sort-container">
+            <strong className="filter-title">정렬</strong>
+            <select 
+              className="filter-select"
+              value={sortOption}
+              onChange={(e) => handleSortChange(e.target.value)}
+            >
+              <option value="reviewCount,desc">인기상품순</option>
+              <option value="createdAt,desc">신상품순</option>
+              <option value="price,asc">낮은가격순</option>
+              <option value="price,desc">높은가격순</option>
+            </select>
+          </div>
         </div>
       </div>
-
-      {/* --- 이하 JSX 렌더링 부분은 기존과 동일 --- */}
-      <form className="search-container" onSubmit={handleSearch}>
-        <div className="search-bar">
-          <input
-            type="text"
-            placeholder={`${selectedCategory} 내에서 검색...`}
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            onFocus={() => setIsHistoryVisible(true)}
-            onBlur={() => setTimeout(() => setIsHistoryVisible(false), 200)}
-          />
-          <button type="submit">검색</button>
-        </div>
-        
-        {isHistoryVisible && history.length > 0 && (
-          <div className="history-container">
-            <ul className="history-list">
-              {history.map((item, index) => (
-                <li key={index} className="history-item" onMouseDown={() => handleHistoryClick(item)}>
-                  <span className="history-term">{item}</span>
-                  <button className="delete-btn" onMouseDown={(e) => handleDeleteHistory(e, item)}>X</button>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-      </form>
 
       {isLoading ? (
         <div className="spinner-container"><div className="spinner"></div></div>
       ) : (
         <>
           <div className="parts-list">
-            {parts.length > 0 ? parts.map(part => (
-              <a key={part.id} href={part.link} target="_blank" rel="noopener noreferrer" className="card-link">
-                <div className="part-card">
-                  <img src={part.imgSrc} alt={part.name} className="part-image" />
-                  <div className="part-info">
-                    <h2 className="part-name">{part.name}</h2>
-                    <p className="part-price">{part.price.toLocaleString()}원</p>
+            {parts.map(part => {
+              const specString = generateSpecString(part);
+              return (
+                <a key={part.id} href={part.link} target="_blank" rel="noopener noreferrer" className="card-link">
+                  <div className="part-card">
+                    <img 
+                      src={part.imgSrc || 'https://img.danawa.com/new/noData/img/noImg_160.gif'} 
+                      alt={part.name} 
+                      className="part-image" 
+                    />
+                    <div className="part-info">
+                      <h2 className="part-name">{part.name}</h2>
+                      {specString && <p className="part-specs">{specString}</p>}
+                      <p className="part-price">{part.price.toLocaleString()}원</p>
+                      <div className="part-reviews">
+                        <span>의견 {part.reviewCount?.toLocaleString() || 0}</span>
+                        <span className="review-divider">|</span>
+                        <span>⭐ {part.starRating || 'N/A'} ({part.ratingReviewCount?.toLocaleString() || 0})</span>
+                      </div>
+                    </div>
                   </div>
-                </div>
-              </a>
-            )) : <p className="no-results">검색 결과가 없습니다.</p>}
+                </a>
+              );
+            })}
           </div>
           
           <div className="pagination-container">

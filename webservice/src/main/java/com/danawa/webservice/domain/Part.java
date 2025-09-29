@@ -6,6 +6,7 @@ import lombok.NoArgsConstructor;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Getter
@@ -32,6 +33,12 @@ public class Part {
 
     @Column(name = "img_src", length = 512)
     private String imgSrc;
+
+    @Column(name = "star_rating", precision = 3, scale = 1)
+    private BigDecimal starRating;
+
+    @Column(name = "rating_review_count")
+    private Integer ratingReviewCount;
 
     // ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼
     // CPU 상세 필드
@@ -212,6 +219,22 @@ public class Part {
 
     @Column(name = "cpu_cooler_height_limit")
     private String cpuCoolerHeightLimit;
+
+    //파워 상세 필드
+    @Column(name = "rated_output")
+    private String ratedOutput;
+
+    @Column(name = "eighty_plus_cert")
+    private String eightyPlusCert;
+
+    @Column(name = "eta_cert")
+    private String etaCert;
+
+    @Column(name = "cable_connection")
+    private String cableConnection;
+
+    @Column(name = "pcie_16pin")
+    private String pcie16pin;
 
     @Column(name = "created_at", updatable = false)
     @CreationTimestamp

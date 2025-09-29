@@ -12,13 +12,25 @@ body {
     padding: 2rem;
 }
 
-h1 {
-    font-size: 2.25rem;
+header {
     text-align: center;
     margin-bottom: 2.5rem;
+}
+
+h1 {
+    font-size: 2.25rem;
     font-weight: 700;
     color: #1a202c;
+    margin-top: 0;
+    margin-bottom: 0.5rem;
 }
+
+.app-subtitle {
+    font-size: 1rem;
+    color: #718096; /* 약간 옅은 회색 */
+    margin-top: 0;
+}
+
 
 /* --- 2. 카테고리 네비게이션 --- */
 .category-nav {
@@ -31,11 +43,13 @@ h1 {
 }
 
 .category-btn {
-    padding: 0.6rem 1.2rem;
-    font-size: 0.9rem;
+    flex: 1;
+    text-align: center;
+    padding: 0.8rem 1rem;
+    font-size: 1rem;
     font-weight: 600;
     border: 1px solid #cbd5e0;
-    border-radius: 20px;
+    border-radius: 8px;
     background-color: #fff;
     cursor: pointer;
     transition: all 0.2s ease-in-out;
@@ -44,28 +58,43 @@ h1 {
 .category-btn:hover {
     background-color: #f7fafc;
     border-color: #a0aec0;
+    transform: translateY(-2px);
 }
 
 .category-btn.active {
     background-color: #2c5282;
     color: #fff;
     border-color: #2c5282;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(44, 82, 130, 0.2);
 }
 
-/* --- 3. 필터 & 정렬 컨트롤 --- */
-.controls-container-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-    gap: 1.5rem;
+
+/* --- 3. 컨트롤 패널 (상세검색 + 정렬 + 검색) --- */
+.controls-container {
     background-color: #fff;
     padding: 1.5rem;
     border-radius: 8px;
-    margin-bottom: 2rem;
+    margin-bottom: 2.5rem;
     box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
     border: 1px solid #e2e8f0;
 }
 
-.filter-group, .sort-container {
+.controls-title {
+    font-size: 1.25rem;
+    font-weight: 700;
+    margin: 0 0 1.5rem 0;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.controls-container-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 1.5rem 2rem; /* 세로 간격, 가로 간격 */
+}
+
+.filter-group, .sort-container, .search-container {
     display: flex;
     flex-direction: column;
 }
@@ -81,7 +110,7 @@ h1 {
 .filter-options {
     max-height: 200px;
     overflow-y: auto;
-    padding-right: 10px; /* 스크롤바 공간 확보 */
+    padding: 5px;
 }
 
 .filter-label {
@@ -89,11 +118,11 @@ h1 {
     align-items: center;
     cursor: pointer;
     font-size: 0.9rem;
+    margin-bottom: 0.6rem;
 }
 
 .filter-label input {
     margin-right: 0.5rem;
-    cursor: pointer;
 }
 
 .filter-select {
@@ -106,8 +135,6 @@ h1 {
 /* --- 4. 검색창 & 히스토리 --- */
 .search-container {
     position: relative;
-    max-width: 500px;
-    margin: 0 auto 2.5rem auto;
 }
 
 .search-bar {
@@ -116,21 +143,23 @@ h1 {
 
 .search-bar input {
     width: 100%;
-    padding: 0.8rem 1rem;
-    border: 1px solid #cbd5e0;
+    padding: 0.6rem;
+    font-size: 0.9rem;
     border-radius: 6px 0 0 6px;
-    font-size: 1rem;
+    border: 1px solid #cbd5e0;
+    border-right: none;
 }
 
 .search-bar button {
-    padding: 0.8rem 1.5rem;
     border: none;
     background-color: #2c5282;
     color: white;
     border-radius: 0 6px 6px 0;
-    font-size: 1rem;
+    font-size: 0.9rem;
     cursor: pointer;
     font-weight: 600;
+    padding: 0 1.2rem;
+    white-space: nowrap;
 }
 
 .history-container {
@@ -195,6 +224,8 @@ h1 {
     border: 1px solid #e2e8f0;
     overflow: hidden;
     transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+    display: flex;
+    flex-direction: column;
 }
 
 .part-card:hover {
@@ -213,22 +244,48 @@ h1 {
 .part-info {
     padding: 1rem;
     border-top: 1px solid #e2e8f0;
+    display: flex;
+    flex-direction: column;
+    flex-grow: 1;
 }
 
 .part-name {
     font-size: 1rem;
     font-weight: 600;
     margin: 0 0 0.5rem 0;
-    height: 3.2em; /* 2줄까지 높이를 고정하여 카드 높이를 일정하게 유지 */
-    overflow: hidden;
+    min-height: 3.2em;
     line-height: 1.6em;
+    flex-grow: 1;
+}
+
+.part-specs {
+    font-size: 0.8rem;
+    color: #4a5568;
+    margin: 0.25rem 0 0.75rem 0;
+    height: 2.4em;
+    line-height: 1.2em;
+    overflow: hidden;
 }
 
 .part-price {
     font-size: 1.25rem;
     font-weight: 700;
     color: #dd6b20;
-    margin: 0;
+    margin: 0 0 0.75rem 0;
+}
+
+.part-reviews {
+    font-size: 0.8rem;
+    color: #718096;
+    padding-top: 0.75rem;
+    border-top: 1px solid #e2e8f0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.part-reviews .review-divider {
+    color: #e2e8f0;
 }
 
 /* --- 6. 페이지네이션 & 로딩 --- */
@@ -246,7 +303,7 @@ h1 {
     border-radius: 6px;
     background-color: #fff;
     cursor: pointer;
-    font-size: 0.9rem; /* [수정] 페이지 버튼 크기 정상화 */
+    font-size: 0.9rem;
     font-weight: 600;
     transition: all 0.2s;
 }
@@ -281,4 +338,12 @@ h1 {
 @keyframes spin {
     0% { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
+}
+
+.no-results {
+    width: 100%;
+    text-align: center;
+    padding: 4rem 0;
+    color: #718096;
+    grid-column: 1 / -1; /* 그리드 전체 너비 차지 */
 }

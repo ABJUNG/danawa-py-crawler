@@ -31,13 +31,14 @@ public class PartService {
     private static final Map<String, List<String>> FILTERABLE_COLUMNS = Map.of(
             "CPU", List.of("manufacturer", "codename", "cpuSeries", "cpuClass", "socket", "cores", "threads", "integratedGraphics"),
             "쿨러", List.of("manufacturer", "productType", "coolingMethod", "airCoolingForm", "coolerHeight", "radiatorLength", "fanSize", "fanConnector"),
+            // [수정] 모든 키를 Part.java의 camelCase 필드명과 일치시킴
             "메인보드", List.of("manufacturer", "socket", "chipset", "formFactor", "memorySpec", "memorySlots", "vgaConnection", "m2Slots", "wirelessLan"),
-            // [수정] memory_spec -> memorySpec (Java 필드명)으로 오타 수정
             "RAM", List.of("manufacturer", "deviceType", "productClass", "capacity", "ramCount", "clockSpeed", "ramTiming", "heatsinkPresence"),
             "그래픽카드", List.of("manufacturer", "nvidiaChipset", "amdChipset", "intelChipset", "gpuInterface", "gpuMemoryCapacity", "outputPorts", "recommendedPsu", "fanCount", "gpuLength"),
             "SSD", List.of("manufacturer", "formFactor", "ssdInterface", "capacity", "memoryType", "ramMounted", "sequentialRead", "sequentialWrite"),
             "HDD", List.of("manufacturer", "hddSeries", "diskCapacity", "rotationSpeed", "bufferCapacity", "hddWarranty"),
-            "케이스", List.of("manufacturer", "productType", "caseSize", "supportedBoard", "sidePanel", "psuLength", "vgaLength", "cpuCoolerHeightLimit")
+            "케이스", List.of("manufacturer", "productType", "caseSize", "supportedBoard", "sidePanel", "psuLength", "vgaLength", "cpuCoolerHeightLimit"),
+            "파워", List.of("manufacturer", "productType", "ratedOutput", "eightyPlusCert", "etaCert", "cableConnection", "pcie16pin")
     );
 
 
