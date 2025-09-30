@@ -31,7 +31,6 @@ public class PartService {
     private static final Map<String, List<String>> FILTERABLE_COLUMNS = Map.of(
             "CPU", List.of("manufacturer", "codename", "cpuSeries", "cpuClass", "socket", "cores", "threads", "integratedGraphics"),
             "쿨러", List.of("manufacturer", "productType", "coolingMethod", "airCoolingForm", "coolerHeight", "radiatorLength", "fanSize", "fanConnector"),
-            // [수정] 모든 키를 Part.java의 camelCase 필드명과 일치시킴
             "메인보드", List.of("manufacturer", "socket", "chipset", "formFactor", "memorySpec", "memorySlots", "vgaConnection", "m2Slots", "wirelessLan"),
             "RAM", List.of("manufacturer", "deviceType", "productClass", "capacity", "ramCount", "clockSpeed", "ramTiming", "heatsinkPresence"),
             "그래픽카드", List.of("manufacturer", "nvidiaChipset", "amdChipset", "intelChipset", "gpuInterface", "gpuMemoryCapacity", "outputPorts", "recommendedPsu", "fanCount", "gpuLength"),
@@ -40,7 +39,6 @@ public class PartService {
             "케이스", List.of("manufacturer", "productType", "caseSize", "supportedBoard", "sidePanel", "psuLength", "vgaLength", "cpuCoolerHeightLimit"),
             "파워", List.of("manufacturer", "productType", "ratedOutput", "eightyPlusCert", "etaCert", "cableConnection", "pcie16pin")
     );
-
 
     public Map<String, Set<String>> getAvailableFiltersForCategory(String category) {
         Map<String, Set<String>> availableFilters = new HashMap<>();
@@ -57,7 +55,6 @@ public class PartService {
                 continue;
             }
 
-            // [개선] Native SQL 대신 JPQL을 사용하여 안정성 강화
             String jpql = String.format("SELECT DISTINCT p.%s FROM Part p WHERE p.category = :category AND p.%s IS NOT NULL AND p.%s != ''",
                     columnFieldName, columnFieldName, columnFieldName);
 
@@ -75,11 +72,9 @@ public class PartService {
     }
 
     private Set<String> getHeightRanges() {
-        // 이 로직은 이미 완벽하게 구현되어 있습니다.
         Query query = em.createNativeQuery("SELECT DISTINCT CAST(cooler_height AS REAL) FROM parts WHERE category = '쿨러' AND cooler_height IS NOT NULL", Double.class);
         @SuppressWarnings("unchecked")
         List<Double> heights = query.getResultList();
-
         Set<String> ranges = new TreeSet<>();
         for (Double h : heights) {
             if (h >= 200) ranges.add("200~mm");
@@ -106,48 +101,44 @@ public class PartService {
         return partRepository.findAll(spec, pageable);
     }
 
+    // [신설] ID 목록으로 부품들을 찾는 서비스 메서드
+    public List<Part> findByIds(List<Long> ids) {
+        return partRepository.findAllById(ids);
+    }
+
     private Specification<Part> createSpecification(MultiValueMap<String, String> filters) {
         return (root, query, cb) -> {
             Predicate predicate = cb.conjunction();
             List<String> allFilterKeys = new ArrayList<>();
             FILTERABLE_COLUMNS.values().forEach(allFilterKeys::addAll);
-
             for (Map.Entry<String, List<String>> entry : filters.entrySet()) {
                 String key = entry.getKey();
                 List<String> values = entry.getValue();
-
                 if (values == null || values.isEmpty() || values.get(0).isEmpty()) continue;
-
                 if (key.equals("category")) {
                     predicate = cb.and(predicate, root.get("category").in(values));
                 } else if (key.equals("keyword")) {
                     predicate = cb.and(predicate, cb.like(root.get("name"), "%" + values.get(0) + "%"));
-                }
-                // [수정] 쿨러 높이 구간 필터링을 위한 특별 로직 추가
-                else if (key.equals("coolerHeight")) {
+                } else if (key.equals("coolerHeight")) {
                     Predicate[] heightPredicates = values.stream().map(range -> {
-                        // 숫자를 추출하기 위한 정규식
                         Matcher m = Pattern.compile("(\\d+(\\.\\d+)?)").matcher(range);
                         List<Double> nums = new ArrayList<>();
                         while (m.find()) {
                             nums.add(Double.parseDouble(m.group(1)));
                         }
-
-                        if (range.startsWith("~") && !nums.isEmpty()) { // ~3mm
+                        if (range.startsWith("~") && !nums.isEmpty()) {
                             return cb.lessThanOrEqualTo(root.get("coolerHeight"), nums.get(0));
-                        } else if (range.contains("~mm") && !nums.isEmpty()) { // 200~mm
+                        } else if (range.contains("~mm") && !nums.isEmpty()) {
                             return cb.greaterThanOrEqualTo(root.get("coolerHeight"), nums.get(0));
-                        } else if (nums.size() == 2) { // 170~199mm
+                        } else if (nums.size() == 2) {
                             return cb.between(root.get("coolerHeight"), nums.get(0), nums.get(1));
                         }
                         return null;
                     }).filter(Objects::nonNull).toArray(Predicate[]::new);
-
                     if (heightPredicates.length > 0) {
                         predicate = cb.and(predicate, cb.or(heightPredicates));
                     }
-                }
-                else if (allFilterKeys.contains(key)) {
+                } else if (allFilterKeys.contains(key)) {
                     predicate = cb.and(predicate, root.get(key).in(values));
                 }
             }

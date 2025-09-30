@@ -1,14 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import './App.css';
+import ComparisonModal from './ComparisonModal'; // ComparisonModal import
 
 const CATEGORIES = ['CPU', '쿨러', '메인보드', 'RAM', '그래픽카드', 'SSD', 'HDD', '파워', '케이스'];
 const ITEMS_PER_PAGE = 20;
 
-// [수정] 중복 키를 정리한 최종 FILTER_LABELS
 const FILTER_LABELS = {
   manufacturer: '제조사',
-  // CPU
   codename: '코드네임',
   cpuSeries: 'CPU 시리즈',
   cpuClass: 'CPU 종류',
@@ -16,7 +15,6 @@ const FILTER_LABELS = {
   cores: '코어 수',
   threads: '스레드 수',
   integratedGraphics: '내장그래픽 탑재 여부',
-  // 쿨러
   productType: '제품 분류',
   coolingMethod: '냉각 방식',
   airCoolingForm: '공랭 형태',
@@ -24,7 +22,6 @@ const FILTER_LABELS = {
   radiatorLength: '라디에이터',
   fanSize: '팬 크기',
   fanConnector: '팬 커넥터',
-  // RAM
   deviceType: '사용 장치',
   productClass: '제품 분류',
   capacity: '메모리 용량',
@@ -32,7 +29,6 @@ const FILTER_LABELS = {
   clockSpeed: '동작 클럭(대역폭)',
   ramTiming: '램 타이밍',
   heatsinkPresence: '히트싱크',
-  // 메인보드
   chipset: '세부 칩셋',
   formFactor: '폼팩터',
   memorySpec: '메모리 종류',
@@ -40,7 +36,6 @@ const FILTER_LABELS = {
   vgaConnection: 'VGA 연결',
   m2Slots: 'M.2',
   wirelessLan: '무선랜 종류',
-  // 그래픽카드
   nvidiaChipset: 'NVIDIA 칩셋',
   amdChipset: 'AMD 칩셋',
   intelChipset: '인텔 칩셋',
@@ -50,26 +45,22 @@ const FILTER_LABELS = {
   recommendedPsu: '권장 파워용량',
   fanCount: '팬 개수',
   gpuLength: '가로(길이)',
-  // SSD
   ssdInterface: '인터페이스',
   memoryType: '메모리 타입',
   ramMounted: 'RAM 탑재',
   sequentialRead: '순차읽기',
   sequentialWrite: '순차쓰기',
-  // HDD
   hddSeries: '시리즈 구분',
   diskCapacity: '디스크 용량',
   rotationSpeed: '회전수',
   bufferCapacity: '버퍼 용량',
   hddWarranty: 'A/S 정보',
-  // 케이스
   caseSize: '케이스 크기',
   supportedBoard: '지원보드 규격',
   sidePanel: '측면 개폐 방식',
   psuLength: '파워 장착 길이',
   vgaLength: 'VGA 길이',
   cpuCoolerHeightLimit: 'CPU쿨러 높이',
-  // 파워
   ratedOutput: '정격출력',
   eightyPlusCert: '80PLUS인증',
   etaCert: 'ETA인증',
@@ -77,7 +68,6 @@ const FILTER_LABELS = {
   pcie16pin: 'PCIe 16핀(12+4)',
 };
 
-// [수정] 모든 카테고리 필터 순서를 하나의 객체로 통합
 const FILTER_ORDER_MAP = {
   CPU: ['manufacturer', 'codename', 'cpuSeries', 'cpuClass', 'socket', 'cores', 'threads', 'integratedGraphics'],
   쿨러: ['manufacturer', 'productType', 'coolingMethod', 'airCoolingForm', 'coolerHeight', 'radiatorLength', 'fanSize', 'fanConnector'],
@@ -90,7 +80,6 @@ const FILTER_ORDER_MAP = {
   파워: ['manufacturer', 'productType', 'ratedOutput', 'eightyPlusCert', 'etaCert', 'cableConnection', 'pcie16pin']
 };
 
-// [수정] App 컴포넌트 바깥으로 헬퍼 함수 분리
 const generateSpecString = (part) => {
   let specs = [];
   switch (part.category) {
@@ -120,6 +109,33 @@ function App() {
   const [currentPage, setCurrentPage] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
   const [sortOption, setSortOption] = useState('createdAt,desc');
+  const [comparisonList, setComparisonList] = useState([]);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+
+  // [수정] handleAddToCompare 함수를 App 컴포넌트 안으로 이동
+  const handleAddToCompare = (e, partToAdd) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    setComparisonList(prevList => {
+      if (prevList.find(p => p.id === partToAdd.id)) {
+        return prevList.filter(p => p.id !== partToAdd.id);
+      }
+      if (prevList.length > 0 && prevList[0].category !== partToAdd.category) {
+        alert('같은 카테고리의 상품만 비교할 수 있습니다.');
+        return prevList;
+      }
+      if (prevList.length < 3) {
+        return [...prevList, partToAdd];
+      }
+      alert('최대 3개의 상품만 비교할 수 있습니다.');
+      return prevList;
+    });
+  };
+
+  const handleRemoveFromCompare = (partId) => {
+    setComparisonList(prevList => prevList.filter(p => p.id !== partId));
+  };
 
   const fetchParts = useCallback(async (category, filters, keyword, page, sort) => {
     setIsLoading(true);
@@ -251,11 +267,10 @@ function App() {
       
       const label = FILTER_LABELS[filterKey] || filterKey;
 
-      // 숫자 기반 정렬이 필요한 필터들을 위한 로직
-      if (['fanSize', 'capacity', 'gpuMemoryCapacity'].includes(filterKey)) {
+      if (['fanSize', 'capacity', 'gpuMemoryCapacity', 'diskCapacity'].includes(filterKey)) {
         values.sort((a, b) => {
-            const numA = parseInt(a, 10);
-            const numB = parseInt(b, 10);
+            const numA = parseInt(a.replace(/[^0-9]/g, ''), 10);
+            const numB = parseInt(b.replace(/[^0-9]/g, ''), 10);
             return numB - numA;
         });
       } else {
@@ -374,6 +389,16 @@ function App() {
                         <span>⭐ {part.starRating || 'N/A'} ({part.ratingReviewCount?.toLocaleString() || 0})</span>
                       </div>
                     </div>
+                    {/* [추가] 비교담기 버튼을 위한 footer */}
+                    <div className="part-card-footer">
+                      <button 
+                        onClick={(e) => handleAddToCompare(e, part)}
+                        disabled={comparisonList.length >= 3 && !comparisonList.find(p => p.id === part.id)}
+                        className={comparisonList.find(p => p.id === part.id) ? 'btn-compare active' : 'btn-compare'}
+                      >
+                        {comparisonList.find(p => p.id === part.id) ? '✔ 비교 중' : '✚ 비교 담기'}
+                      </button>
+                    </div>
                   </div>
                 </a>
               );
@@ -392,6 +417,37 @@ function App() {
             ))}
           </div>
         </>
+      )}
+
+      {/* 비교 트레이 UI */}
+      {comparisonList.length > 0 && (
+        <div className="comparison-tray">
+          <div className="comparison-tray-items">
+            {comparisonList.map(part => (
+              <div key={part.id} className="comparison-item">
+                <span>{part.name.substring(0, 15)}...</span>
+                <button onClick={() => handleRemoveFromCompare(part.id)}>×</button>
+              </div>
+            ))}
+          </div>
+          <button 
+            className="btn-show-compare" 
+            onClick={() => setIsModalOpen(true)}
+            disabled={comparisonList.length < 2}
+          >
+            비교하기 ({comparisonList.length}/3)
+          </button>
+        </div>
+      )}
+
+      {/* 비교 모달 렌더링 */}
+      {isModalOpen && (
+        <ComparisonModal 
+          products={comparisonList} 
+          onClose={() => setIsModalOpen(false)} 
+          filterLabels={FILTER_LABELS}
+          filterOrderMap={FILTER_ORDER_MAP}
+        />
       )}
     </div>
   );

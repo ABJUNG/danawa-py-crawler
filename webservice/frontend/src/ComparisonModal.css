@@ -1,0 +1,130 @@
+/* --- 1. 모달 배경 (오버레이) --- */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    animation: fadeIn 0.3s ease-out;
+}
+
+/* --- 2. 모달 본문 (콘텐츠) --- */
+.modal-content {
+    background: #fff;
+    padding: 2rem;
+    border-radius: 12px;
+    box-shadow: 0 5px 20px rgba(0, 0, 0, 0.2);
+    width: 90%;
+    max-width: 1200px; /* 비교창 너비를 넓게 설정 */
+    max-height: 90vh;
+    overflow-y: auto;
+    position: relative;
+    animation: slideUp 0.4s ease-out;
+}
+
+/* --- 3. 모달 닫기 버튼 & 제목 --- */
+.modal-close-btn {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    background: none;
+    border: none;
+    font-size: 2rem;
+    color: #888;
+    cursor: pointer;
+    line-height: 1;
+}
+.modal-close-btn:hover {
+    color: #333;
+}
+.modal-content h2 {
+    margin-top: 0;
+    margin-bottom: 1.5rem;
+    text-align: center;
+    font-size: 1.5rem;
+    color: #2c5282;
+}
+
+/* --- 4. 상품 비교 테이블 --- */
+.comparison-table-container {
+    overflow-x: auto; /* 테이블이 넘칠 경우 가로 스크롤 생성 */
+}
+.comparison-table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 700px; /* 3개 상품 기준 최소 너비 */
+}
+
+/* 테이블 셀 공통 스타일 */
+.comparison-table th,
+.comparison-table td {
+    padding: 0.8rem 1rem;
+    text-align: center;
+    border-bottom: 1px solid #e2e8f0;
+    vertical-align: middle;
+}
+
+/* 테이블 헤더 (상품명, 이미지) */
+.comparison-table thead th {
+    background-color: #f7fafc;
+    font-size: 0.9rem;
+    font-weight: 600;
+    vertical-align: bottom; /* 이미지와 이름 정렬 기준 */
+    white-space: normal; /* 상품명이 길 경우 줄바꿈 허용 */
+}
+.comparison-table thead th a {
+    text-decoration: none;
+    color: inherit;
+}
+.comparison-table thead th a:hover {
+    text-decoration: underline;
+}
+
+/* [신설] 비교 모달 내 상품 이미지 */
+.product-compare-image {
+    max-width: 100px;
+    max-height: 100px;
+    object-fit: contain;
+    display: block;
+    margin: 0 auto 0.5rem auto; /* 중앙 정렬 및 이름과의 간격 */
+}
+
+/* 첫 번째 열 (항목 이름) 스타일 */
+.comparison-table tbody td:first-child {
+    text-align: left;
+    font-weight: 600;
+    background-color: #f7fafc;
+    width: 180px; /* 항목 이름 너비 고정 */
+}
+
+/* 가격 및 리뷰 정보 행 스타일 */
+.comparison-table .main-info td {
+    font-size: 0.9rem;
+    background-color: #fdfdff;
+}
+.comparison-table .main-info td.price {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #dd6b20;
+}
+
+/* 짝수 데이터 행 배경색 */
+.comparison-table tbody tr:not(.main-info):nth-child(even) {
+    background-color: #f9f9f9;
+}
+
+/* --- 애니메이션 효과 --- */
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes slideUp {
+    from { transform: translateY(30px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+}

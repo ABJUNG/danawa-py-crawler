@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Set; // 반환 타입 Set으로 변경
 
@@ -27,6 +28,13 @@ public class PartController {
     @GetMapping("/api/parts")
     public Page<Part> getParts(@RequestParam MultiValueMap<String, String> allParams, Pageable pageable) {
         return partService.findByFilters(allParams, pageable);
+    }
+
+    // [신설] ID 목록으로 여러 부품을 조회하는 API
+    @GetMapping("/api/parts/compare")
+    public ResponseEntity<List<Part>> getPartsByIds(@RequestParam List<Long> ids) {
+        List<Part> parts = partService.findByIds(ids);
+        return ResponseEntity.ok(parts);
     }
 
     /**
