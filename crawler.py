@@ -61,38 +61,51 @@ COOLER_PRODUCT_TYPES = [
 ]
 
 def parse_cpu_specs(name, spec_string):
-    """[수정] 스레드 파싱 로직 개선"""
+    """[수정] 스레드, 코드네임 등 CPU 파싱 로직 종합 개선"""
     specs = {}
     
+    # 1. 이름에서 제조사 정보 추출
     if '인텔' in name: specs['manufacturer'] = '인텔'
     elif 'AMD' in name: specs['manufacturer'] = 'AMD'
 
+    # 2. 인식할 코드네임 목록 최신화
     CODENAMES = [
         '그래니트 릿지', '애로우레이크', '랩터레이크', '엘더레이크', 
         '라파엘', '버미어', '마티스', '시더밀', '코멧레이크'
     ]
     
+    # 3. 이름에서 코드네임 및 시리즈 추출
     name_parts = name.replace('(', ' ').replace(')', ' ').split()
     for part in name_parts:
         if '세대' in part and 'cpu_series' not in specs:
             specs['cpu_series'] = part
         for codename in CODENAMES:
             if codename in part and 'codename' not in specs:
-                specs['codename'] = codename; break
+                specs['codename'] = codename
+                break
     
+    # 4. 상세 스펙 문자열에서 정보 보충 (스레드 로직 개선)
     spec_parts = [part.strip() for part in spec_string.split('/')]
     for part in spec_parts:
-        if '소켓' in part: specs['socket'] = part
-        elif '코어' in part: specs['cores'] = part
-        # [수정] '스레드'라는 단어만 포함되면 값을 가져오도록 변경
-        elif '스레드' in part: specs['threads'] = part
-        elif '내장그래픽' in part: specs['integrated_graphics'] = "탑재" if '탑재' in part else "미탑재"
-        elif 'CPU 시리즈' in part: specs['cpu_series'] = part.replace('CPU 시리즈:', '').strip()
-        elif 'CPU 종류' in part: specs['cpu_class'] = part.replace('CPU 종류:', '').strip()
+        if '소켓' in part:
+            specs['socket'] = part
+        elif '코어' in part:
+            specs['cores'] = part
+        # [수정] '스레드'라는 단어가 포함된 모든 경우를 처리하도록 변경
+        elif '스레드' in part:
+            specs['threads'] = part
+        elif '내장그래픽' in part:
+            specs['integrated_graphics'] = "탑재" if '탑재' in part else "미탑재"
+        elif 'CPU 시리즈' in part:
+            specs['cpu_series'] = part.replace('CPU 시리즈:', '').strip()
+        elif 'CPU 종류' in part:
+            specs['cpu_class'] = part.replace('CPU 종류:', '').strip()
+        # 이름에서 못 찾았을 경우, 스펙 문자열에서 다시 코드네임 검색
         elif 'codename' not in specs:
             for codename in CODENAMES:
                 if codename in part:
-                    specs['codename'] = codename; break
+                    specs['codename'] = codename
+                    break
             
     return specs
 

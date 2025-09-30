@@ -6,6 +6,7 @@ import ComparisonModal from './ComparisonModal'; // ComparisonModal import
 const CATEGORIES = ['CPU', '쿨러', '메인보드', 'RAM', '그래픽카드', 'SSD', 'HDD', '파워', '케이스'];
 const ITEMS_PER_PAGE = 20;
 
+// (FILTER_LABELS, FILTER_ORDER_MAP, generateSpecString 함수는 기존과 동일)
 const FILTER_LABELS = {
   manufacturer: '제조사',
   codename: '코드네임',
@@ -97,6 +98,7 @@ const generateSpecString = (part) => {
   return specs.filter(Boolean).join(' / ');
 };
 
+
 function App() {
   const [parts, setParts] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -111,8 +113,39 @@ function App() {
   const [sortOption, setSortOption] = useState('createdAt,desc');
   const [comparisonList, setComparisonList] = useState([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  
+  // --- [추가] 1. 다크/라이트 모드 상태 관리 ---
+  const [theme, setTheme] = useState('light');
 
-  // [수정] handleAddToCompare 함수를 App 컴포넌트 안으로 이동
+  // --- [추가] 2. 테마 변경 함수 ---
+  const toggleTheme = () => {
+    const newTheme = theme === 'light' ? 'dark' : 'light';
+    setTheme(newTheme);
+    localStorage.setItem('theme', newTheme); // 사용자의 테마 선택을 저장
+  };
+
+  // --- [추가] 3. 컴포넌트 첫 로딩 시, 저장된 테마나 시스템 설정 확인 ---
+  useEffect(() => {
+    const savedTheme = localStorage.getItem('theme');
+    const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    if (savedTheme) {
+      setTheme(savedTheme);
+    } else if (prefersDark) {
+      setTheme('dark');
+    }
+  }, []);
+
+   // --- [추가] 아코디언 UI를 위한 상태 ---
+  // 처음에는 첫 번째 필터가 열려있도록 'manufacturer'로 초기화
+  const [openFilter, setOpenFilter] = useState('manufacturer'); 
+
+  // --- [추가] 아코디언 토글 핸들러 ---
+  const handleFilterToggle = (filterKey) => {
+    // 이미 열려있는 필터를 다시 클릭하면 닫고, 다른 필터를 클릭하면 새로 연다.
+    setOpenFilter(prevOpenFilter => prevOpenFilter === filterKey ? null : filterKey);
+  };
+
+
   const handleAddToCompare = (e, partToAdd) => {
     e.preventDefault();
     e.stopPropagation();
@@ -133,6 +166,7 @@ function App() {
     });
   };
 
+  // (이하 데이터 로딩 및 필터링 관련 함수들은 기존과 동일)
   const handleRemoveFromCompare = (partId) => {
     setComparisonList(prevList => prevList.filter(p => p.id !== partId));
   };
@@ -260,12 +294,10 @@ function App() {
 
     return filterOrder.map(filterKey => {
       const values = availableFilters[filterKey];
-      
-      if (!values || values.length === 0) {
-        return null;
-      }
+      if (!values || values.length === 0) { return null; }
       
       const label = FILTER_LABELS[filterKey] || filterKey;
+      const isOpen = openFilter === filterKey; // 현재 필터가 열려있는지 확인
 
       if (['fanSize', 'capacity', 'gpuMemoryCapacity', 'diskCapacity'].includes(filterKey)) {
         values.sort((a, b) => {
@@ -278,16 +310,23 @@ function App() {
       }
 
       return (
-        <div key={filterKey} className="filter-group">
-          <strong className="filter-title">{label}</strong>
-          <div className="filter-options">
+        // 클릭 이벤트와 active 클래스 추가
+        <div key={filterKey} className={`filter-group ${isOpen ? 'active' : ''}`}>
+          <strong className="filter-title" onClick={() => handleFilterToggle(filterKey)}>
+            {label}
+            {/* 열림/닫힘 아이콘 추가 */}
+            <span className="toggle-icon">{isOpen ? '▲' : '▼'}</span>
+          </strong>
+          {/* filter-options를 항상 렌더링하되, CSS로 표시 여부 제어 */}
+          <div className="filter-options radio-group">
             {values.map(value => (
-              <label key={value} className="filter-label">
+              <label key={value} className="radio-label">
                 <input
                   type="checkbox"
                   checked={(selectedFilters[filterKey] || []).includes(value)}
                   onChange={() => handleFilterChange(filterKey, value)}
-                /> {value}
+                />
+                <span className="radio-text">{value}</span>
               </label>
             ))}
           </div>
@@ -297,129 +336,117 @@ function App() {
   };
 
   return (
-    <div className="app-container">
-      <header>
-        <h1>💻 다 나올까? 💻</h1>
-        <p className="app-subtitle">웹 크롤링을 이용한 PC 부품 가격 비교 앱</p>
-      </header>
-
-      <nav className="category-nav">
-        {CATEGORIES.map(category => (
-          <button
-            key={category}
-            className={`category-btn ${selectedCategory === category ? 'active' : ''}`}
-            onClick={() => handleCategoryClick(category)}
-          >
-            {category}
+    // --- [수정] 4. 최상위 div에 theme 클래스 적용 ---
+    <div className={`app-wrapper ${theme}`}>
+      <div className="app-container">
+        <header>
+          <h1>💻 다 나올까? 💻</h1>
+          <p className="app-subtitle">웹 크롤링을 이용한 PC 부품 가격 비교 앱</p>
+          {/* --- [추가] 5. 테마 변경 버튼 --- */}
+          <button className="theme-toggle-btn" onClick={toggleTheme}>
+            {theme === 'light' ? '🌙' : '☀️'}
           </button>
-        ))}
-      </nav>
-      
-      <div className="controls-container">
-        <h2 className="controls-title">상세 검색</h2>
-        <div className="controls-container-grid">
-          {renderFilters()}
+        </header>
 
-          <form className="search-container" onSubmit={handleSearch}>
-            <strong className="filter-title">상품명 검색</strong>
-            <div className="search-bar">
-              <input
-                type="text"
-                placeholder={`${selectedCategory} 내에서 검색...`}
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                onFocus={() => setIsHistoryVisible(true)}
-                onBlur={() => setTimeout(() => setIsHistoryVisible(false), 200)}
-              />
-              <button type="submit">검색</button>
-            </div>
-            
-            {isHistoryVisible && history.length > 0 && (
-              <div className="history-container">
-                <ul className="history-list">
-                  {history.map((item, index) => (
-                    <li key={index} className="history-item" onMouseDown={() => handleHistoryClick(item)}>
-                      <span className="history-term">{item}</span>
-                      <button className="delete-btn" onMouseDown={(e) => handleDeleteHistory(e, item)}>X</button>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </form>
-
-          <div className="sort-container">
-            <strong className="filter-title">정렬</strong>
-            <select 
-              className="filter-select"
-              value={sortOption}
-              onChange={(e) => handleSortChange(e.target.value)}
+        <nav className="category-nav">
+          {CATEGORIES.map(category => (
+            <button
+              key={category}
+              className={`category-btn ${selectedCategory === category ? 'active' : ''}`}
+              onClick={() => handleCategoryClick(category)}
             >
-              <option value="reviewCount,desc">인기상품순</option>
-              <option value="createdAt,desc">신상품순</option>
-              <option value="price,asc">낮은가격순</option>
-              <option value="price,desc">높은가격순</option>
-            </select>
-          </div>
+              {category}
+            </button>
+          ))}
+        </nav>
+        
+        {/* --- [수정] 좌/우 2단 레이아웃 적용 --- */}
+        <div className="main-content">
+          <aside className="filters-sidebar">
+            <div className="controls-container">
+              <h2 className="controls-title">상세 검색</h2>
+              <div className="controls-container-grid">
+                <div className="search-sort-wrapper">
+                  <form className="search-container" onSubmit={handleSearch}>
+                    <strong className="filter-title">상품명 검색</strong>
+                    <div className="search-bar">
+                      <input type="text" placeholder={`${selectedCategory} 내에서 검색...`} value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} onFocus={() => setIsHistoryVisible(true)} onBlur={() => setTimeout(() => setIsHistoryVisible(false), 200)} />
+                      <button type="submit">검색</button>
+                    </div>
+                    {isHistoryVisible && history.length > 0 && (
+                      <div className="history-container">
+                        <ul className="history-list">
+                          {history.map((item, index) => (
+                            <li key={index} className="history-item" onMouseDown={() => handleHistoryClick(item)}>
+                              <span className="history-term">{item}</span>
+                              <button className="delete-btn" onMouseDown={(e) => handleDeleteHistory(e, item)}>X</button>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </form>
+                  <div className="sort-container">
+                    <strong className="filter-title">정렬</strong>
+                    <select className="filter-select" value={sortOption} onChange={(e) => handleSortChange(e.target.value)}>
+                      <option value="reviewCount,desc">인기상품순</option>
+                      <option value="createdAt,desc">신상품순</option>
+                      <option value="price,asc">낮은가격순</option>
+                      <option value="price,desc">높은가격순</option>
+                    </select>
+                  </div>
+                </div>
+                {renderFilters()}
+              </div>
+            </div>
+          </aside>
+
+          <main className="products-area">
+            {isLoading ? (
+              <div className="spinner-container"><div className="spinner"></div></div>
+            ) : (
+              <>
+                <div className="parts-list">
+                  {parts.length > 0 ? parts.map(part => {
+                    const specString = generateSpecString(part);
+                    return (
+                      <a key={part.id} href={part.link} target="_blank" rel="noopener noreferrer" className="card-link">
+                        <div className="part-card">
+                          <img src={part.imgSrc || 'https://img.danawa.com/new/noData/img/noImg_160.gif'} alt={part.name} className="part-image" />
+                          <div className="part-info">
+                            <h2 className="part-name">{part.name}</h2>
+                            {specString && <p className="part-specs">{specString}</p>}
+                            <p className="part-price">{part.price.toLocaleString()}원</p>
+                            <div className="part-reviews">
+                              <span>의견 {part.reviewCount?.toLocaleString() || 0}</span>
+                              <span className="review-divider">|</span>
+                              <span>⭐ {part.starRating || 'N/A'} ({part.ratingReviewCount?.toLocaleString() || 0})</span>
+                            </div>
+                          </div>
+                          <div className="part-card-footer">
+                            <button onClick={(e) => handleAddToCompare(e, part)} disabled={comparisonList.length >= 3 && !comparisonList.find(p => p.id === part.id)} className={comparisonList.find(p => p.id === part.id) ? 'btn-compare active' : 'btn-compare'}>
+                              {comparisonList.find(p => p.id === part.id) ? '✔ 비교 중' : '✚ 비교 담기'}
+                            </button>
+                          </div>
+                        </div>
+                      </a>
+                    );
+                  }) : <div className="no-results">검색 결과가 없습니다.</div>}
+                </div>
+                
+                <div className="pagination-container">
+                  {totalPages > 1 && Array.from({ length: totalPages }, (_, i) => i).map(pageNumber => (
+                    <button key={pageNumber} onClick={() => handlePageChange(pageNumber)} className={`page-btn ${currentPage === pageNumber ? 'active' : ''}`}>
+                      {pageNumber + 1}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </main>
         </div>
       </div>
 
-      {isLoading ? (
-        <div className="spinner-container"><div className="spinner"></div></div>
-      ) : (
-        <>
-          <div className="parts-list">
-            {parts.map(part => {
-              const specString = generateSpecString(part);
-              return (
-                <a key={part.id} href={part.link} target="_blank" rel="noopener noreferrer" className="card-link">
-                  <div className="part-card">
-                    <img 
-                      src={part.imgSrc || 'https://img.danawa.com/new/noData/img/noImg_160.gif'} 
-                      alt={part.name} 
-                      className="part-image" 
-                    />
-                    <div className="part-info">
-                      <h2 className="part-name">{part.name}</h2>
-                      {specString && <p className="part-specs">{specString}</p>}
-                      <p className="part-price">{part.price.toLocaleString()}원</p>
-                      <div className="part-reviews">
-                        <span>의견 {part.reviewCount?.toLocaleString() || 0}</span>
-                        <span className="review-divider">|</span>
-                        <span>⭐ {part.starRating || 'N/A'} ({part.ratingReviewCount?.toLocaleString() || 0})</span>
-                      </div>
-                    </div>
-                    {/* [추가] 비교담기 버튼을 위한 footer */}
-                    <div className="part-card-footer">
-                      <button 
-                        onClick={(e) => handleAddToCompare(e, part)}
-                        disabled={comparisonList.length >= 3 && !comparisonList.find(p => p.id === part.id)}
-                        className={comparisonList.find(p => p.id === part.id) ? 'btn-compare active' : 'btn-compare'}
-                      >
-                        {comparisonList.find(p => p.id === part.id) ? '✔ 비교 중' : '✚ 비교 담기'}
-                      </button>
-                    </div>
-                  </div>
-                </a>
-              );
-            })}
-          </div>
-          
-          <div className="pagination-container">
-            {totalPages > 1 && Array.from({ length: totalPages }, (_, i) => i).map(pageNumber => (
-              <button
-                key={pageNumber}
-                onClick={() => handlePageChange(pageNumber)}
-                className={`page-btn ${currentPage === pageNumber ? 'active' : ''}`}
-              >
-                {pageNumber + 1}
-              </button>
-            ))}
-          </div>
-        </>
-      )}
-
-      {/* 비교 트레이 UI */}
       {comparisonList.length > 0 && (
         <div className="comparison-tray">
           <div className="comparison-tray-items">
@@ -430,24 +457,14 @@ function App() {
               </div>
             ))}
           </div>
-          <button 
-            className="btn-show-compare" 
-            onClick={() => setIsModalOpen(true)}
-            disabled={comparisonList.length < 2}
-          >
+          <button className="btn-show-compare" onClick={() => setIsModalOpen(true)} disabled={comparisonList.length < 2}>
             비교하기 ({comparisonList.length}/3)
           </button>
         </div>
       )}
 
-      {/* 비교 모달 렌더링 */}
       {isModalOpen && (
-        <ComparisonModal 
-          products={comparisonList} 
-          onClose={() => setIsModalOpen(false)} 
-          filterLabels={FILTER_LABELS}
-          filterOrderMap={FILTER_ORDER_MAP}
-        />
+        <ComparisonModal products={comparisonList} onClose={() => setIsModalOpen(false)} filterLabels={FILTER_LABELS} filterOrderMap={FILTER_ORDER_MAP}/>
       )}
     </div>
   );

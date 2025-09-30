@@ -1,43 +1,81 @@
-/* --- 1. 기본 & 레이아웃 --- */
+/* --- 1. 기본 & 다크/라이트 테마 변수 --- */
+:root {
+  --bg-color: #f7fafc;
+  --container-bg-color: #ffffff;
+  --panel-bg-color: #ffffff;
+  --text-color: #1a202c;
+  --subtext-color: #718096;
+  --border-color: #e2e8f0;
+  --primary-color: #3182ce;
+  --primary-color-light: #ebf8ff;
+  --hover-bg-color: #f7fafc;
+  --shadow-color: rgba(0, 0, 0, 0.05);
+}
+
+/* [수정] JS와 연동될 다크모드 변수 */
+.app-wrapper.dark {
+  --bg-color: #1a202c;
+  --container-bg-color: #2d3748;
+  --panel-bg-color: #27303f;
+  --text-color: #e2e8f0;
+  --subtext-color: #a0aec0;
+  --border-color: #4a5568;
+  --primary-color: #63b3ed;
+  --primary-color-light: #2c5282;
+  --hover-bg-color: #4a5568;
+  --shadow-color: rgba(0, 0, 0, 0.2);
+}
+
+/* --- 2. 기본 & 레이아웃 --- */
 body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-    margin: 0;
-    background-color: #f0f2f5;
-    color: #1a202c;
-    padding-bottom: 100px; /* 비교 트레이 공간 확보 */
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  margin: 0;
+  background-color: var(--bg-color);
+  color: var(--text-color);
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+.app-wrapper {
+  background-color: var(--bg-color);
+  min-height: 100vh;
+  transition: background-color 0.3s ease;
 }
 
 .app-container {
-    max-width: 1280px;
-    margin: 2rem auto;
-    padding: 2.5rem;
-    background-color: #ffffff;
-    border-radius: 12px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.05);
+  max-width: 1280px;
+  margin: 2rem auto;
+  padding: 2.5rem;
+  background-color: var(--container-bg-color);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px var(--shadow-color);
 }
 
 header {
-    text-align: center;
-    margin-bottom: 2.5rem;
-    border-bottom: 1px solid #e2e8f0;
-    padding-bottom: 1.5rem;
+  position: relative;
+  text-align: center;
+  margin-bottom: 2.5rem;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 1.5rem;
 }
 
+/* [추가] 타이틀 그라데이션 스타일 */
 h1 {
-    font-size: 2.5rem;
-    font-weight: 800;
-    color: #1a202c;
-    margin: 0 0 0.5rem 0;
+  font-size: 2.8rem;
+  font-weight: 800;
+  margin: 0 0 0.5rem 0;
+  background: linear-gradient(45deg, #3182ce, #a6d1f5);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 
 .app-subtitle {
-    font-size: 1rem;
-    color: #718096;
-    margin-top: 0;
+  font-size: 1rem;
+  color: var(--subtext-color);
+  margin-top: 0;
 }
 
-
-/* --- 2. 카테고리 네비게이션 --- */
+/* --- 카테고리 네비게이션 --- */
 .category-nav {
     display: flex;
     flex-wrap: wrap;
@@ -51,35 +89,51 @@ h1 {
     padding: 0.8rem 1rem;
     font-size: 1rem;
     font-weight: 600;
-    border: 1px solid #cbd5e0;
+    border: 1px solid var(--border-color);
     border-radius: 8px;
-    background-color: #fff;
+    background-color: var(--container-bg-color);
+    color: var(--text-color);
     cursor: pointer;
     transition: all 0.2s ease-in-out;
 }
 
 .category-btn:hover {
-    background-color: #f7fafc;
-    border-color: #a0aec0;
+    background-color: var(--hover-bg-color);
+    border-color: var(--primary-color);
     transform: translateY(-2px);
 }
 
 .category-btn.active {
-    background-color: #3182ce;
+    background-color: var(--primary-color);
     color: #fff;
-    border-color: #3182ce;
+    border-color: var(--primary-color);
     transform: translateY(-2px);
     box-shadow: 0 4px 14px rgba(49, 130, 206, 0.3);
 }
 
+/* --- 메인 콘텐츠 2단 레이아웃 --- */
+.main-content {
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    gap: 2rem;
+    align-items: start;
+}
 
-/* --- 3. 컨트롤 패널 --- */
+.filters-sidebar {
+    position: sticky;
+    top: 2rem;
+}
+
+.products-area {
+    width: 100%;
+}
+
+/* --- 컨트롤 패널 --- */
 .controls-container {
-    background-color: #f7fafc;
+    background-color: var(--panel-bg-color);
     padding: 1.5rem;
     border-radius: 8px;
-    margin-bottom: 2.5rem;
-    border: 1px solid #e2e8f0;
+    border: 1px solid var(--border-color);
 }
 
 .controls-title {
@@ -87,13 +141,14 @@ h1 {
     font-weight: 700;
     margin: 0 0 1.5rem 0;
     padding-bottom: 1rem;
-    border-bottom: 1px solid #e2e8f0;
+    border-bottom: 1px solid var(--border-color);
+    color: var(--text-color);
 }
 
 .controls-container-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-    gap: 1.5rem 2rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
 }
 
 .filter-group, .sort-container, .search-container {
@@ -101,46 +156,88 @@ h1 {
     flex-direction: column;
 }
 
+.search-sort-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
 .filter-title {
     font-size: 1rem;
     font-weight: 600;
-    margin-bottom: 1rem;
-    padding-bottom: 0.5rem;
-    border-bottom: 2px solid #3182ce;
-    color: #2d3748;
+    margin-bottom: 0.75rem;
+    color: var(--text-color);
 }
 
 .filter-options {
-    max-height: 200px;
-    overflow-y: auto;
-    padding: 5px;
-}
-
-.filter-label {
     display: flex;
-    align-items: center;
-    cursor: pointer;
-    font-size: 0.9rem;
-    margin-bottom: 0.6rem;
-    color: #4a5568;
+    flex-direction: column;
+    gap: 0.5rem;
+    max-height: 180px;
+    overflow-y: auto;
+    padding: 0.25rem;
 }
-.filter-label input { margin-right: 0.5rem; }
-.filter-select { padding: 0.6rem; font-size: 0.9rem; border-radius: 6px; border: 1px solid #cbd5e0; }
 
-/* --- 4. 검색창 & 히스토리 --- */
+.filter-select {
+    padding: 0.6rem;
+    font-size: 0.9rem;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    background-color: var(--container-bg-color);
+    color: var(--text-color);
+    width: 100%;
+}
+
+.radio-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    max-height: none;
+    overflow-y: visible;
+}
+
+.radio-label input {
+    display: none;
+}
+
+.radio-label .radio-text {
+    padding: 0.4rem 0.8rem;
+    border: 1px solid var(--border-color);
+    border-radius: 15px;
+    font-size: 0.85rem;
+    transition: all 0.2s ease;
+    background-color: var(--container-bg-color);
+    color: var(--subtext-color);
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.radio-label:hover .radio-text {
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+}
+
+.radio-label input:checked + .radio-text {
+    background-color: var(--primary-color);
+    color: #fff;
+    border-color: var(--primary-color);
+}
+
+
+/* --- 검색창 & 히스토리 --- */
 .search-container { position: relative; }
 .search-bar { display: flex; }
-.search-bar input { width: 100%; padding: 0.6rem; font-size: 0.9rem; border-radius: 6px 0 0 6px; border: 1px solid #cbd5e0; border-right: none; }
-.search-bar button { border: none; background-color: #3182ce; color: white; border-radius: 0 6px 6px 0; font-size: 0.9rem; cursor: pointer; font-weight: 600; padding: 0 1.2rem; }
-.history-container { position: absolute; top: 100%; left: 0; right: 0; margin-top: 5px; z-index: 10; border: 1px solid #e2e8f0; background-color: #fff; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+.search-bar input { width: 100%; padding: 0.6rem; font-size: 0.9rem; border-radius: 6px 0 0 6px; border: 1px solid var(--border-color); background-color: var(--bg-color); color: var(--text-color); border-right: none; }
+.search-bar button { border: none; background-color: var(--primary-color); color: white; border-radius: 0 6px 6px 0; font-size: 0.9rem; cursor: pointer; font-weight: 600; padding: 0 1.2rem; white-space: nowrap; }
+.history-container { position: absolute; top: 100%; left: 0; right: 0; margin-top: 5px; z-index: 10; border: 1px solid var(--border-color); background-color: var(--container-bg-color); border-radius: 8px; box-shadow: 0 4px 8px var(--shadow-color); }
 .history-list { list-style: none; padding: 0.5rem; margin: 0; }
 .history-item { display: flex; justify-content: space-between; align-items: center; padding: 0.6rem 0.8rem; border-radius: 4px; }
 .history-term { cursor: pointer; flex-grow: 1; }
-.history-item:hover { background-color: #f7fafc; }
-.delete-btn { background: none; border: none; cursor: pointer; color: #a0aec0; }
+.history-item:hover { background-color: var(--hover-bg-color); }
+.delete-btn { background: none; border: none; cursor: pointer; color: var(--subtext-color); }
 
 
-/* --- 5. 상품 목록 & 카드 --- */
+/* --- 상품 목록 & 카드 --- */
 .parts-list {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
@@ -150,10 +247,10 @@ h1 {
 .card-link { text-decoration: none; color: inherit; }
 
 .part-card {
-    background-color: white;
+    background-color: var(--container-bg-color);
     border-radius: 8px;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
-    border: 1px solid #e2e8f0;
+    box-shadow: 0 4px 6px var(--shadow-color);
+    border: 1px solid var(--border-color);
     overflow: hidden;
     transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
     display: flex;
@@ -163,7 +260,8 @@ h1 {
 
 .part-card:hover {
     transform: translateY(-5px);
-    box-shadow: 0 10px 15px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 10px 15px var(--shadow-color);
+    border-color: var(--primary-color);
 }
 
 .part-image {
@@ -177,7 +275,7 @@ h1 {
 
 .part-info {
     padding: 1rem;
-    border-top: 1px solid #e2e8f0;
+    border-top: 1px solid var(--border-color);
     display: flex;
     flex-direction: column;
     flex-grow: 1;
@@ -190,12 +288,12 @@ h1 {
     min-height: 3.2em;
     line-height: 1.6em;
     flex-grow: 1;
-    color: #2d3748;
+    color: var(--text-color);
 }
 
 .part-specs {
     font-size: 0.75rem;
-    color: #718096;
+    color: var(--subtext-color);
     margin: 0.25rem 0 0.75rem 0;
     height: 2.4em;
     line-height: 1.2em;
@@ -211,17 +309,17 @@ h1 {
 
 .part-reviews {
     font-size: 0.8rem;
-    color: #718096;
+    color: var(--subtext-color);
     padding-top: 0.75rem;
-    border-top: 1px solid #e2e8f0;
+    border-top: 1px solid var(--border-color);
     display: flex;
     justify-content: space-between;
     align-items: center;
 }
-.part-reviews .review-divider { color: #e2e8f0; }
+.part-reviews .review-divider { color: var(--border-color); }
 
 
-/* --- 6. 페이지네이션 & 로딩 --- */
+/* --- 페이지네이션 & 로딩 --- */
 .pagination-container {
     display: flex;
     justify-content: center;
@@ -232,24 +330,25 @@ h1 {
 
 .page-btn {
     padding: 0.6rem 1rem;
-    border: 1px solid #cbd5e0;
+    border: 1px solid var(--border-color);
     border-radius: 6px;
-    background-color: #fff;
+    background-color: var(--container-bg-color);
     cursor: pointer;
     font-size: 0.9rem;
     font-weight: 600;
     transition: all 0.2s;
+    color: var(--text-color);
 }
 
 .page-btn:hover {
-    background-color: #edf2f7;
-    border-color: #a0aec0;
+    background-color: var(--hover-bg-color);
+    border-color: var(--primary-color);
 }
 
 .page-btn.active {
-    background-color: #3182ce;
+    background-color: var(--primary-color);
     color: white;
-    border-color: #3182ce;
+    border-color: var(--primary-color);
 }
 
 .spinner-container {
@@ -262,8 +361,8 @@ h1 {
 .spinner {
     width: 50px;
     height: 50px;
-    border: 5px solid #e2e8f0;
-    border-top: 5px solid #3182ce;
+    border: 5px solid var(--border-color);
+    border-top: 5px solid var(--primary-color);
     border-radius: 50%;
     animation: spin 1s linear infinite;
 }
@@ -277,15 +376,14 @@ h1 {
     width: 100%;
     text-align: center;
     padding: 4rem 0;
-    color: #718096;
+    color: var(--subtext-color);
     grid-column: 1 / -1;
 }
 
-/* --- 7. 비교 기능 스타일 --- */
-
+/* --- 비교 기능 스타일 --- */
 .part-card-footer {
     padding: 0 1rem 1rem;
-    margin-top: auto; /* 푸터를 카드 하단에 고정 */
+    margin-top: auto;
 }
 
 .btn-compare {
@@ -294,26 +392,26 @@ h1 {
     font-size: 0.9rem;
     font-weight: 600;
     border-radius: 6px;
-    border: 1px solid #3182ce;
-    background-color: #fff;
-    color: #3182ce;
+    border: 1px solid var(--primary-color);
+    background-color: var(--container-bg-color);
+    color: var(--primary-color);
     cursor: pointer;
     transition: all 0.2s ease;
 }
 
 .btn-compare:hover {
-    background-color: #ebf8ff;
+    background-color: var(--primary-color-light);
 }
 
 .btn-compare.active {
-    background-color: #3182ce;
+    background-color: var(--primary-color);
     color: #fff;
 }
 
 .btn-compare:disabled {
-    background-color: #e2e8f0;
-    border-color: #cbd5e0;
-    color: #a0aec0;
+    background-color: var(--border-color);
+    border-color: var(--border-color);
+    color: var(--subtext-color);
     cursor: not-allowed;
 }
 
@@ -322,14 +420,15 @@ h1 {
     bottom: 0;
     left: 0;
     right: 0;
-    background: #fff;
-    box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.1);
+    background: var(--container-bg-color);
+    box-shadow: 0 -4px 12px var(--shadow-color);
     display: flex;
     justify-content: space-between;
     align-items: center;
     padding: 1rem 2rem;
     z-index: 999;
     animation: slideUpTray 0.3s ease-out;
+    border-top: 1px solid var(--border-color);
 }
 
 .comparison-tray-items {
@@ -343,7 +442,7 @@ h1 {
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    background: #f0f2f5;
+    background: var(--bg-color);
     padding: 0.5rem 1rem;
     border-radius: 20px;
     font-size: 0.9rem;
@@ -355,7 +454,7 @@ h1 {
     border: none;
     font-size: 1.2rem;
     cursor: pointer;
-    color: #718096;
+    color: var(--subtext-color);
     padding: 0;
     line-height: 1;
 }
@@ -380,4 +479,27 @@ h1 {
 @keyframes slideUpTray {
     from { transform: translateY(100%); }
     to { transform: translateY(0); }
+}
+
+/* --- [추가] 테마 변경 버튼 스타일 --- */
+.theme-toggle-btn {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%);
+  background: var(--panel-bg-color);
+  border: 1px solid var(--border-color);
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  font-size: 20px;
+  cursor: pointer;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  transition: background-color 0.3s, border-color 0.3s;
+}
+
+.theme-toggle-btn:hover {
+  background-color: var(--hover-bg-color);
 }
