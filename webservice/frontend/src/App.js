@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import './App.css';
 import ComparisonModal from './ComparisonModal'; // ComparisonModal import
 
 const CATEGORIES = ['CPU', '쿨러', '메인보드', 'RAM', '그래픽카드', 'SSD', 'HDD', '파워', '케이스'];
-const ITEMS_PER_PAGE = 20;
+const ITEMS_PER_PAGE = 21;
 
 // (FILTER_LABELS, FILTER_ORDER_MAP, generateSpecString 함수는 기존과 동일)
 const FILTER_LABELS = {
@@ -110,10 +110,20 @@ function App() {
   const [isHistoryVisible, setIsHistoryVisible] = useState(false);
   const [currentPage, setCurrentPage] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
-  const [sortOption, setSortOption] = useState('createdAt,desc');
+  const [sortOption, setSortOption] = useState('reviewCount,desc');
   const [comparisonList, setComparisonList] = useState([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   
+  // --- [추가] 아코디언 UI를 위한 상태 관리 ---
+  const [openFilter, setOpenFilter] = useState('manufacturer'); 
+
+  // --- [추가] 아코디언 토글 핸들러 ---
+  const handleFilterToggle = (filterKey) => {
+    setOpenFilter(prevOpenFilter => prevOpenFilter === filterKey ? null : filterKey);
+  };
+
+
+
   // --- [추가] 1. 다크/라이트 모드 상태 관리 ---
   const [theme, setTheme] = useState('light');
 
@@ -134,17 +144,6 @@ function App() {
       setTheme('dark');
     }
   }, []);
-
-   // --- [추가] 아코디언 UI를 위한 상태 ---
-  // 처음에는 첫 번째 필터가 열려있도록 'manufacturer'로 초기화
-  const [openFilter, setOpenFilter] = useState('manufacturer'); 
-
-  // --- [추가] 아코디언 토글 핸들러 ---
-  const handleFilterToggle = (filterKey) => {
-    // 이미 열려있는 필터를 다시 클릭하면 닫고, 다른 필터를 클릭하면 새로 연다.
-    setOpenFilter(prevOpenFilter => prevOpenFilter === filterKey ? null : filterKey);
-  };
-
 
   const handleAddToCompare = (e, partToAdd) => {
     e.preventDefault();
@@ -284,11 +283,90 @@ function App() {
     setCurrentPage(pageNumber);
     fetchParts(selectedCategory, selectedFilters, searchTerm, pageNumber, sortOption);
   };
+
+  // --- [추가] 이전 페이지로 이동하는 함수 ---
+  const handlePrevPage = () => {
+    if (currentPage > 0) {
+      handlePageChange(currentPage - 1);
+    }
+  };
+
+  // --- [추가] 다음 페이지로 이동하는 함수 ---
+  const handleNextPage = () => {
+    if (currentPage < totalPages - 1) {
+      handlePageChange(currentPage + 1);
+    }
+  };
   
   const handleSortChange = (sortValue) => {
     setSortOption(sortValue);
   };
 
+  // --- [추가] 선택된 필터 태그를 클릭하여 제거하는 함수 ---
+  const handleRemoveFilter = (filterKey, valueToRemove) => {
+    const newFilters = { ...selectedFilters };
+
+    // 현재 필터의 값 배열에서 제거할 값을 제외한 새 배열을 생성
+    const newValues = newFilters[filterKey].filter(value => value !== valueToRemove);
+
+    if (newValues.length > 0) {
+      // 새 배열에 값이 남아있으면 업데이트
+      newFilters[filterKey] = newValues;
+    } else {
+      // 새 배열이 비어있으면 해당 필터 키 자체를 삭제
+      delete newFilters[filterKey];
+    }
+
+    setSelectedFilters(newFilters);
+    setCurrentPage(0);
+    fetchParts(selectedCategory, newFilters, searchTerm, 0, sortOption);
+  };
+
+  // --- [추가] 모든 필터를 초기화하는 함수 ---
+  const handleResetFilters = () => {
+    setSelectedFilters({});
+    setCurrentPage(0);
+    fetchParts(selectedCategory, {}, searchTerm, 0, sortOption);
+  };
+
+  // --- [추가] 선택된 필터 태그들을 렌더링하는 함수 ---
+  const renderSelectedFilters = () => {
+    // 선택된 필터가 없으면 아무것도 렌더링하지 않음
+    if (Object.keys(selectedFilters).length === 0) {
+      return null;
+    }
+
+    return (
+      <div className="selected-filters-container">
+        {Object.entries(selectedFilters).flatMap(([key, values]) =>
+          values.map(value => (
+            <div key={`${key}-${value}`} className="filter-tag">
+              <span>{FILTER_LABELS[key]}: {value}</span>
+              <button onClick={() => handleRemoveFilter(key, value)}>🅧</button>
+            </div>
+          ))
+        )}
+        <button className="reset-filters-btn" onClick={handleResetFilters}>
+          전체 초기화
+        </button>
+      </div>
+    );
+  };
+
+  // --- [추가] 스켈레톤 UI 컴포넌트 ---
+  const SkeletonCard = () => {
+  return (
+    <div className="skeleton-card">
+      <div className="skeleton-image"></div>
+      <div className="skeleton-info">
+        <div className="skeleton-text long"></div>
+        <div className="skeleton-text short"></div>
+        <div className="skeleton-text medium"></div>
+      </div>
+    </div>
+  );
+};
+  // --- [수정] 아코디언 UI를 적용할 renderFilters 함수 ---
   const renderFilters = () => {
     const filterOrder = FILTER_ORDER_MAP[selectedCategory] || Object.keys(availableFilters);
 
@@ -297,7 +375,7 @@ function App() {
       if (!values || values.length === 0) { return null; }
       
       const label = FILTER_LABELS[filterKey] || filterKey;
-      const isOpen = openFilter === filterKey; // 현재 필터가 열려있는지 확인
+      const isOpen = openFilter === filterKey;
 
       if (['fanSize', 'capacity', 'gpuMemoryCapacity', 'diskCapacity'].includes(filterKey)) {
         values.sort((a, b) => {
@@ -310,15 +388,14 @@ function App() {
       }
 
       return (
-        // 클릭 이벤트와 active 클래스 추가
         <div key={filterKey} className={`filter-group ${isOpen ? 'active' : ''}`}>
+          {/* 제목을 클릭하면 펼쳐지도록 onClick 이벤트 추가 */}
           <strong className="filter-title" onClick={() => handleFilterToggle(filterKey)}>
             {label}
-            {/* 열림/닫힘 아이콘 추가 */}
             <span className="toggle-icon">{isOpen ? '▲' : '▼'}</span>
           </strong>
-          {/* filter-options를 항상 렌더링하되, CSS로 표시 여부 제어 */}
-          <div className="filter-options radio-group">
+          {/* 알약 버튼 그룹 */}
+          <div className="radio-group">
             {values.map(value => (
               <label key={value} className="radio-label">
                 <input
@@ -401,9 +478,17 @@ function App() {
             </div>
           </aside>
 
+
           <main className="products-area">
+            {renderSelectedFilters()}
+
             {isLoading ? (
-              <div className="spinner-container"><div className="spinner"></div></div>
+              <div className="parts-list">
+                {/* ITEMS_PER_PAGE 개수만큼 스켈레톤 카드 렌더링 */}
+                {Array.from({ length: ITEMS_PER_PAGE }).map((_, index) => (
+                  <SkeletonCard key={index} />
+                ))}
+              </div>
             ) : (
               <>
                 <div className="parts-list">
@@ -435,11 +520,30 @@ function App() {
                 </div>
                 
                 <div className="pagination-container">
-                  {totalPages > 1 && Array.from({ length: totalPages }, (_, i) => i).map(pageNumber => (
-                    <button key={pageNumber} onClick={() => handlePageChange(pageNumber)} className={`page-btn ${currentPage === pageNumber ? 'active' : ''}`}>
-                      {pageNumber + 1}
-                    </button>
+                <button 
+                  onClick={handlePrevPage} 
+                  disabled={currentPage === 0}
+                  className="page-btn arrow-btn"
+                >
+                  &lt;
+                </button>
+                
+                {totalPages > 1 && Array.from({ length: totalPages }, (_, i) => i).map(pageNumber => (
+                  <button
+                    key={pageNumber}
+                    onClick={() => handlePageChange(pageNumber)}
+                    className={`page-btn ${currentPage === pageNumber ? 'active' : ''}`}
+                  >
+                    {pageNumber + 1}
+                  </button>
                   ))}
+                  <button 
+                  onClick={handleNextPage} 
+                  disabled={currentPage === totalPages - 1}
+                  className="page-btn arrow-btn"
+                >
+                  &gt;
+                </button>
                 </div>
               </>
             )}

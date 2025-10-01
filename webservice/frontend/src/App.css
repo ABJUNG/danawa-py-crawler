@@ -127,46 +127,72 @@ h1 {
 .products-area {
     width: 100%;
 }
-
-/* --- 컨트롤 패널 --- */
-.controls-container {
-    background-color: var(--panel-bg-color);
-    padding: 1.5rem;
-    border-radius: 8px;
-    border: 1px solid var(--border-color);
-}
-
-.controls-title {
-    font-size: 1.25rem;
-    font-weight: 700;
-    margin: 0 0 1.5rem 0;
-    padding-bottom: 1rem;
-    border-bottom: 1px solid var(--border-color);
-    color: var(--text-color);
-}
-
-.controls-container-grid {
-    display: flex;
-    flex-direction: column;
-    gap: 1.5rem;
-}
-
-.filter-group, .sort-container, .search-container {
-    display: flex;
-    flex-direction: column;
-}
-
-.search-sort-wrapper {
-    display: flex;
-    flex-direction: column;
-    gap: 1.5rem;
-}
-
-.filter-title {
-    font-size: 1rem;
+/* 필터 제목 역할을 하는 버튼 */
+.filter-button {
+    width: 100%;
+    padding: 0.7rem 1rem;
+    font-size: 0.9rem;
     font-weight: 600;
-    margin-bottom: 0.75rem;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background-color: var(--container-bg-color);
     color: var(--text-color);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    text-align: left;
+}
+.filter-button:hover {
+    border-color: var(--primary-color);
+    background-color: var(--hover-bg-color);
+}
+
+.filter-group.active .filter-button {
+    background-color: var(--primary-color-light);
+    border-color: var(--primary-color);
+}
+
+.toggle-icon {
+    font-size: 0.8rem;
+    color: var(--subtext-color);
+}
+
+/* 선택지들이 나타나는 드롭다운 패널 */
+.filter-dropdown {
+    position: absolute;
+    top: calc(100% + 5px); /* 버튼 바로 아래에 위치 */
+    left: 0;
+    right: 0;
+    background-color: var(--panel-bg-color);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    box-shadow: 0 8px 16px var(--shadow-color);
+    z-index: 10;
+    padding: 1rem;
+    max-height: 220px;
+    overflow-y: auto;
+    
+    /* 부드러운 등장 애니메이션 */
+    animation: fadeIn 0.2s ease-out;
+}
+
+/* 드롭다운 등장 애니메이션 keyframes */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.sort-container, .search-container {
+    display: flex;
+    flex-direction: column;
 }
 
 .filter-options {
@@ -188,41 +214,122 @@ h1 {
     width: 100%;
 }
 
+
+/* App.css */
+/* ... (파일 상단의 :root, body 등 기본 스타일은 동일) ... */
+
+/* --- 컨트롤 패널 --- */
+.controls-container {
+    background-color: var(--panel-bg-color);
+    padding: 1.5rem;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+}
+
+.controls-title {
+    font-size: 1.25rem;
+    font-weight: 700;
+    margin: 0 0 1.5rem 0;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--border-color);
+    color: var(--text-color);
+}
+
+.controls-container-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem; /* 그룹 사이 간격 조정 */
+}
+
+.search-sort-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    padding-bottom: 1rem; /* 아랫 그룹과 간격 확보 */
+}
+
+/* --- [수정] 아코디언 필터 그룹 스타일 --- */
+
+.filter-group {
+    border-bottom: 1px solid var(--border-color);
+}
+.filter-group:last-of-type {
+    border-bottom: none;
+}
+
+.filter-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-color);
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem 0;
+    transition: color 0.2s ease;
+}
+
+.filter-title:hover {
+    color: var(--primary-color);
+}
+
+.toggle-icon {
+    font-size: 0.8rem;
+    color: var(--subtext-color);
+    transition: transform 0.3s ease;
+}
+
+.filter-group.active .toggle-icon {
+    transform: rotate(180deg);
+}
+
+/* 알약 버튼(태그)들을 감싸는 컨테이너 */
 .radio-group {
     display: flex;
     flex-wrap: wrap;
     gap: 0.5rem;
-    max-height: none;
-    overflow-y: visible;
+    
+    /* 아코디언 애니메이션을 위한 스타일 */
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.4s ease-out, padding 0.4s ease-out;
+    padding: 0; /* 닫혔을 때는 패딩 없음 */
 }
 
+/* 아코디언이 펼쳐졌을 때의 스타일 */
+.filter-group.active .radio-group {
+    max-height: 200px; /* 펼쳐질 최대 높이 */
+    overflow-y: auto;  /* 내용이 많으면 스크롤 */
+    padding: 0.75rem 0 1rem 0; /* 펼쳐졌을 때의 패딩 */
+}
+
+/* (알약 버튼 자체의 스타일은 이전과 동일) */
 .radio-label input {
     display: none;
 }
-
 .radio-label .radio-text {
-    padding: 0.4rem 0.8rem;
+    padding: 0.5rem 0.9rem;
     border: 1px solid var(--border-color);
-    border-radius: 15px;
+    border-radius: 20px;
     font-size: 0.85rem;
     transition: all 0.2s ease;
     background-color: var(--container-bg-color);
     color: var(--subtext-color);
     white-space: nowrap;
     cursor: pointer;
+    display: inline-block;
 }
-
 .radio-label:hover .radio-text {
     border-color: var(--primary-color);
     color: var(--primary-color);
+    background-color: var(--primary-color-light);
 }
-
 .radio-label input:checked + .radio-text {
     background-color: var(--primary-color);
     color: #fff;
     border-color: var(--primary-color);
+    font-weight: 500;
 }
-
 
 /* --- 검색창 & 히스토리 --- */
 .search-container { position: relative; }
@@ -252,15 +359,17 @@ h1 {
     box-shadow: 0 4px 6px var(--shadow-color);
     border: 1px solid var(--border-color);
     overflow: hidden;
-    transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+    /* transition에 border-color 추가 */
+    transition: transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
     display: flex;
     flex-direction: column;
     height: 100%;
 }
 
 .part-card:hover {
-    transform: translateY(-5px);
-    box-shadow: 0 10px 15px var(--shadow-color);
+    transform: translateY(-8px); /* 좀 더 역동적인 움직임 */
+    /* 그림자를 더 풍부하고 입체적으로 변경 */
+    box-shadow: 0 12px 20px var(--shadow-color);
     border-color: var(--primary-color);
 }
 
@@ -283,7 +392,7 @@ h1 {
 
 .part-name {
     font-size: 1rem;
-    font-weight: 600;
+    font-weight: 700;
     margin: 0 0 0.5rem 0;
     min-height: 3.2em;
     line-height: 1.6em;
@@ -298,13 +407,14 @@ h1 {
     height: 2.4em;
     line-height: 1.2em;
     overflow: hidden;
+    font-weight: 400;
 }
 
 .part-price {
-    font-size: 1.25rem;
-    font-weight: 700;
-    color: #dd6b20;
-    margin: 0 0 0.75rem 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text-color); /* 테마의 기본 텍스트 색상을 사용하도록 변경 */
+  margin: 0 0 0.75rem 0;
 }
 
 .part-reviews {
@@ -329,14 +439,25 @@ h1 {
 }
 
 .page-btn {
-    padding: 0.6rem 1rem;
+    /* 크기를 고정하여 원형으로 만듭니다 */
+    width: 38px;
+    height: 38px;
+    padding: 0; /* 내부 패딩 제거 */
+    
     border: 1px solid var(--border-color);
-    border-radius: 6px;
+    border-radius: 50%; /* 완전한 원형 */
     background-color: var(--container-bg-color);
+    
     cursor: pointer;
-    font-size: 0.9rem;
+    font-size: 1rem;
     font-weight: 600;
-    transition: all 0.2s;
+    
+    /* 숫자와 아이콘을 중앙에 정렬 */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    transition: all 0.2s ease;
     color: var(--text-color);
 }
 
@@ -345,10 +466,25 @@ h1 {
     border-color: var(--primary-color);
 }
 
+/* 마우스를 올렸을 때 스타일 */
+.page-btn:not(:disabled):hover {
+    background-color: var(--primary-color-light);
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+}
+
+/* 현재 페이지(활성화) 버튼 스타일 */
 .page-btn.active {
     background-color: var(--primary-color);
     color: white;
     border-color: var(--primary-color);
+    box-shadow: 0 2px 8px rgba(49, 130, 206, 0.3);
+}
+
+/* [추가] 비활성화된 버튼 스타일 */
+.page-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
 }
 
 .spinner-container {
@@ -502,4 +638,169 @@ h1 {
 
 .theme-toggle-btn:hover {
   background-color: var(--hover-bg-color);
+}
+
+/* --- [추가] 선택된 필터 태그 스타일 --- */
+
+/* 태그들을 감싸는 컨테이너 */
+.selected-filters-container {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem;
+  margin-bottom: 2rem;
+  background-color: var(--panel-bg-color);
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+}
+
+/* 개별 태그 스타일 */
+.filter-tag {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background-color: var(--primary-color-light);
+  color: var(--primary-color);
+  font-size: 0.85rem;
+  font-weight: 500;
+  padding: 0.4rem 0.8rem;
+  border-radius: 15px;
+  border: 1px solid var(--primary-color);
+}
+
+.dark .filter-tag {
+  color: var(--text-color); /* 다크모드에서는 텍스트 색상 변경 */
+}
+
+/* 태그 안의 X 버튼 */
+.filter-tag button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  margin: 0;
+  line-height: 1;
+  color: var(--primary-color);
+  opacity: 0.7;
+  transition: opacity 0.2s;
+}
+
+.filter-tag button:hover {
+  opacity: 1;
+}
+
+.dark .filter-tag button {
+  color: var(--text-color);
+}
+
+/* 전체 초기화 버튼 스타일 */
+.reset-filters-btn {
+  background: none;
+  border: none;
+  color: var(--subtext-color);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  margin-left: auto; /* 맨 오른쪽으로 밀어내기 */
+  padding: 0.4rem;
+  text-decoration: underline;
+}
+
+.reset-filters-btn:hover {
+  color: var(--text-color);
+}
+
+/* --- [추가] 스켈레톤 UI 로딩 스타일 --- */
+
+/* 스켈레톤 색상 변수 추가 (파일 상단 :root에 추가) */
+:root {
+  /* ... 기존 변수들 ... */
+  --skeleton-bg: #e2e8f0;
+}
+
+/* 다크모드용 스켈레톤 색상 변수 추가 (.app-wrapper.dark에 추가) */
+.app-wrapper.dark {
+  /* ... 기존 변수들 ... */
+  --skeleton-bg: #4a5568;
+}
+
+
+/* 스켈레톤 카드 레이아웃 */
+.skeleton-card {
+  background-color: var(--container-bg-color);
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* 스켈레톤 이미지 플레이스홀더 */
+.skeleton-image {
+  width: 100%;
+  height: 200px;
+  background-color: var(--skeleton-bg);
+}
+
+.skeleton-info {
+  padding: 1rem;
+  border-top: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem; /* 텍스트 라인 사이 간격 */
+}
+
+/* 스켈레톤 텍스트 라인 */
+.skeleton-text {
+  height: 1.2em;
+  background-color: var(--skeleton-bg);
+  border-radius: 4px;
+}
+
+.skeleton-text.long { width: 90%; }
+.skeleton-text.medium { width: 60%; }
+.skeleton-text.short { width: 40%; }
+
+/* 반짝이는 효과를 위한 애니메이션 */
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+/* 모든 스켈레톤 요소에 반짝이는 효과 적용 */
+.skeleton-image,
+.skeleton-text {
+  position: relative;
+  overflow: hidden;
+}
+
+.skeleton-image::after,
+.skeleton-text::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, 
+    rgba(255, 255, 255, 0) 0, 
+    rgba(255, 255, 255, 0.2) 20%, 
+    rgba(255, 255, 255, 0.5) 60%, 
+    rgba(255, 255, 255, 0)
+  );
+  animation: shimmer 2s infinite;
+}
+
+.dark .skeleton-image::after,
+.dark .skeleton-text::after {
+  background: linear-gradient(90deg, 
+    rgba(0, 0, 0, 0) 0, 
+    rgba(0, 0, 0, 0.1) 20%, 
+    rgba(0, 0, 0, 0.2) 60%, 
+    rgba(0, 0, 0, 0)
+  );
 }
