@@ -61,164 +61,166 @@ COOLER_PRODUCT_TYPES = [
 ]
 
 def parse_cpu_specs(name, spec_string):
-    """[수정] 스레드, 코드네임 등 CPU 파싱 로직 종합 개선"""
+    """[최종 완성] P+E코어, 복합 스레드 등 모든 최신 CPU 스펙을 완벽하게 지원하는 파서"""
     specs = {}
-    
-    # 1. 이름에서 제조사 정보 추출
-    if '인텔' in name: specs['manufacturer'] = '인텔'
-    elif 'AMD' in name: specs['manufacturer'] = 'AMD'
+    # 이름과 스펙 문자열을 하나로 합쳐 검색 효율성 극대화
+    full_text = name + " / " + spec_string
 
-    # 2. 인식할 코드네임 목록 최신화
-    CODENAMES = [
-        '그래니트 릿지', '애로우레이크', '랩터레이크', '엘더레이크', 
-        '라파엘', '버미어', '마티스', '시더밀', '코멧레이크'
-    ]
+    # 1. 제조사 확정
+    if '인텔' in full_text or '코어i' in full_text or '울트라' in full_text:
+        specs['manufacturer'] = '인텔'
+    elif 'AMD' in full_text or '라이젠' in full_text:
+        specs['manufacturer'] = 'AMD'
+
+    # 2. 정규 표현식으로 각 스펙을 정확하게 추출
     
-    # 3. 이름에서 코드네임 및 시리즈 추출
-    name_parts = name.replace('(', ' ').replace(')', ' ').split()
-    for part in name_parts:
-        if '세대' in part and 'cpu_series' not in specs:
-            specs['cpu_series'] = part
-        for codename in CODENAMES:
-            if codename in part and 'codename' not in specs:
-                specs['codename'] = codename
-                break
-    
-    # 4. 상세 스펙 문자열에서 정보 보충 (스레드 로직 개선)
-    spec_parts = [part.strip() for part in spec_string.split('/')]
-    for part in spec_parts:
-        if '소켓' in part:
-            specs['socket'] = part
-        elif '코어' in part:
-            specs['cores'] = part
-        # [수정] '스레드'라는 단어가 포함된 모든 경우를 처리하도록 변경
-        elif '스레드' in part:
-            specs['threads'] = part
-        elif '내장그래픽' in part:
-            specs['integrated_graphics'] = "탑재" if '탑재' in part else "미탑재"
-        elif 'CPU 시리즈' in part:
-            specs['cpu_series'] = part.replace('CPU 시리즈:', '').strip()
-        elif 'CPU 종류' in part:
-            specs['cpu_class'] = part.replace('CPU 종류:', '').strip()
-        # 이름에서 못 찾았을 경우, 스펙 문자열에서 다시 코드네임 검색
-        elif 'codename' not in specs:
-            for codename in CODENAMES:
-                if codename in part:
-                    specs['codename'] = codename
-                    break
+    # 코어 (P+E 코어 형식 포함, 예: P8+E12코어, 8코어)
+    core_match = re.search(r'([PE\d\+]+코어)', full_text)
+    if core_match:
+        specs['cores'] = core_match.group(1)
+
+    # 스레드 (복합 스레드 형식 포함, 예: 12+8스레드, 20스레드)
+    # --- 여기가 핵심 수정 부분입니다! ---
+    thread_match = re.search(r'([\d\+]+)\s*스레드', full_text)
+    if thread_match:
+        specs['threads'] = thread_match.group(1).replace(' ', '') + '스레드'
+
+    # 소켓 (괄호 안 형식 포함, 예: 인텔(소켓1700))
+    socket_match = re.search(r'소켓([^\s\)]+)', full_text)
+    if socket_match:
+        specs['socket'] = '소켓' + socket_match.group(1)
+
+    # 코드네임 (괄호 안 형식 우선 추출, 예: (애로우레이크))
+    codename_match = re.search(r'\(([^)]+(?:레이크|릿지|리프레시|라파엘|버미어|라파엘|피카소|세잔|시마다 픽|피닉스|Zen\d+))\)', full_text)
+    if codename_match:
+        specs['codename'] = codename_match.group(1)
+        
+    # CPU 시리즈 (예: 14세대, 6세대)
+    series_match = re.search(r'(\d+세대)', full_text)
+    if series_match:
+        specs['cpu_series'] = series_match.group(1)
+
+    # CPU 종류 (상품명에서 추출)
+    class_match = re.search(r'(코어\s?(?:울트라|i)\d+|라이젠\s?\d)', name, re.I)
+    if class_match:
+        specs['cpu_class'] = class_match.group(1).replace(' ', '')
+
+    # 내장그래픽
+    if '내장그래픽' in full_text:
+        if '미탑재' in full_text:
+            specs['integrated_graphics'] = '미탑재'
+        elif '탑재' in full_text:
+            specs['integrated_graphics'] = '탑재'
             
     return specs
 
 def parse_cooler_specs(name, spec_string):
+    """쿨러 파싱 로직 개선"""
     specs = {}
     if name: specs['manufacturer'] = name.split()[0]
-    for p_type in COOLER_PRODUCT_TYPES:
-        if p_type.replace(' ', '') in name.replace(' ', ''):
-            specs['product_type'] = p_type
-            break
-    if 'product_type' not in specs and 'CPU 쿨러' in spec_string: specs['product_type'] = 'CPU 쿨러'
+    
     spec_parts = [part.strip() for part in spec_string.split('/')]
     for part in spec_parts:
-        if '공랭' in part: specs['cooling_method'] = '공랭'
+        if 'CPU' in part and '쿨러' in part: specs['product_type'] = 'CPU 쿨러'
+        elif '공랭' in part: specs['cooling_method'] = '공랭'
         elif '수랭' in part: specs['cooling_method'] = '수랭'
-        if '타워형' in part: specs['air_cooling_form'] = '타워형'
+        elif '타워형' in part: specs['air_cooling_form'] = '타워형'
         elif '플라워형' in part: specs['air_cooling_form'] = '플라워형'
-        if '라디에이터' in part:
-            match = re.search(r'(\d+열)', part)
-            if match: specs['radiator_length'] = match.group(1)
-        if '높이' in part:
-            match = re.search(r'(\d+(\.\d+)?)mm', part)
-            if match: specs['cooler_height'] = match.group(1)
-        if '팬 크기' in part:
-            match = re.search(r'(\d+(\.\d+)?)mm', part)
-            if match: specs['fan_size'] = match.group(1) + "mm"
-        if '팬 커넥터' in part: specs['fan_connector'] = part
+        elif '라디에이터' in part and '열' in part: specs['radiator_length'] = part
+        elif '쿨러 높이' in part: specs['cooler_height'] = part
+        elif '팬 크기' in part: specs['fan_size'] = part
+        elif '팬 커넥터' in part: specs['fan_connector'] = part
+            
     return specs
 
 def parse_motherboard_specs(name, spec_string):
-    """[수정] 키워드 없이 값의 패턴을 분석하도록 파싱 로직 강화"""
+    """메인보드 파싱 로직 개선"""
     specs = {}
     if name: specs['manufacturer'] = name.split()[0]
 
-    # 이름에 칩셋 정보가 있는 경우 우선 추출
-    if match := re.search(r'\b([A-Z]\d{3}[A-Z]*)\b', name):
-        specs['chipset'] = match.group(1)
-
     spec_parts = [part.strip() for part in spec_string.split('/')]
     for part in spec_parts:
-        if '소켓' in part: specs['socket'] = part.replace('CPU 소켓:', '').strip()
+        part_no_keyword = part.replace('CPU 소켓:','').strip()
+        if '소켓' in part: specs['socket'] = part_no_keyword
+        # 칩셋 (예: B760, X670) 패턴
+        elif re.search(r'^[A-Z]\d{3}[A-Z]*$', part): specs['chipset'] = part
+        # 폼팩터
         elif 'ATX' in part or 'ITX' in part: specs['form_factor'] = part
+        # 메모리 종류
         elif 'DDR' in part: specs['memory_spec'] = part
-        elif '슬롯' in part: specs['memory_slots'] = part
-        elif 'PCIe' in part: specs['vga_connection'] = part
+        elif '메모리 슬롯' in part: specs['memory_slots'] = part
+        elif 'VGA 연결' in part or 'PCIe' in part: specs['vga_connection'] = part
         elif 'M.2' in part: specs['m2_slots'] = part
         elif '무선랜' in part or 'Wi-Fi' in part: specs['wireless_lan'] = part
-        elif not specs.get('chipset') and re.search(r'^[A-Z]\d{3}', part):
-            specs['chipset'] = part # 이름에 없으면 스펙에서 다시 확인
             
     return specs
 
 def parse_ram_specs(name, spec_string):
-    """[수정] 정규식을 사용하여 패턴으로 인식하도록 로직 강화"""
+    """RAM 파싱 로직 개선"""
     specs = {}
     if name: specs['manufacturer'] = name.split()[0]
     spec_parts = [part.strip() for part in spec_string.split('/')]
     for part in spec_parts:
         if '데스크탑용' in part or '노트북용' in part: specs['device_type'] = part
-        elif 'DDR' in part: specs['product_class'] = part
+        elif re.match(r'^DDR\d+$', part): specs['product_class'] = part
         elif re.search(r'^\d+GB$|^\d+TB$', part): specs['capacity'] = part
-        elif '개' in part: specs['ram_count'] = part
+        elif re.search(r'^\d+개$', part): specs['ram_count'] = part
         elif 'MHz' in part: specs['clock_speed'] = part
         elif 'CL' in part: specs['ram_timing'] = part
         elif '방열판' in part: specs['heatsink_presence'] = part
+
     return specs
 
 def parse_vga_specs(name, spec_string):
+    """그래픽카드 파싱 로직 개선"""
     specs = {}
     if name: specs['manufacturer'] = name.split()[0]
     spec_parts = [part.strip() for part in spec_string.split('/')]
     for part in spec_parts:
-        if 'RTX' in part or 'GTX' in part or 'GT' in part: specs['nvidia_chipset'] = part
-        elif 'RX' in part or 'Radeon' in part: specs['amd_chipset'] = part
+        if 'RTX' in part or 'GTX' in part: specs['nvidia_chipset'] = part
+        elif 'RX' in part: specs['amd_chipset'] = part
         elif 'Arc' in part: specs['intel_chipset'] = part
-        if 'PCIe' in part: specs['gpu_interface'] = part
-        if 'GDDR' in part and 'GB' in part: specs['gpu_memory_capacity'] = part
-        if '출력 단자' in part: specs['output_ports'] = part
-        if '권장 파워' in part: specs['recommended_psu'] = part
-        if '팬 개수' in part: specs['fan_count'] = part
-        if '가로(길이)' in part: specs['gpu_length'] = part
+        elif 'PCIe' in part: specs['gpu_interface'] = part
+        elif 'GDDR' in part: specs['gpu_memory_capacity'] = part
+        elif '출력 단자' in part: specs['output_ports'] = part
+        elif '권장 파워' in part: specs['recommended_psu'] = part
+        elif '팬 개수' in part: specs['fan_count'] = part
+        elif '가로(길이)' in part: specs['gpu_length'] = part
+
     return specs
 
 def parse_ssd_specs(name, spec_string):
+    """SSD 파싱 로직 개선"""
     specs = {}
     if name: specs['manufacturer'] = name.split()[0]
     spec_parts = [part.strip() for part in spec_string.split('/')]
     for part in spec_parts:
-        if '폼팩터' in spec_string and ('M.2' in part or '2.5인치' in part): specs['form_factor'] = part
-        if '인터페이스' in spec_string and ('PCIe' in part or 'SATA' in part): specs['ssd_interface'] = part
-        if '용량' in spec_string and ('TB' in part or 'GB' in part): specs['capacity'] = part
-        if '메모리 타입' in spec_string and ('TLC' in part or 'QLC' in part or 'MLC' in part): specs['memory_type'] = part
-        if 'RAM 탑재' in part: specs['ram_mounted'] = part
-        if '순차읽기' in part: specs['sequential_read'] = part
-        if '순차쓰기' in part: specs['sequential_write'] = part
+        if 'M.2' in part or '2.5인치' in part: specs['form_factor'] = part
+        elif 'PCIe' in part or 'SATA' in part: specs['ssd_interface'] = part
+        elif ('TB' in part or 'GB' in part) and 'capacity' not in specs: specs['capacity'] = part
+        elif 'TLC' in part or 'QLC' in part or 'MLC' in part: specs['memory_type'] = part
+        elif 'RAM 탑재' in part: specs['ram_mounted'] = part
+        elif '순차읽기' in part: specs['sequential_read'] = part
+        elif '순차쓰기' in part: specs['sequential_write'] = part
+            
     return specs
 
 def parse_hdd_specs(name, spec_string):
+    """HDD 파싱 로직 개선"""
     specs = {}
     if name: specs['manufacturer'] = name.split()[0]
-    name_parts = name.replace('(', ' ').replace(')', ' ').split()
-    for part in name_parts:
-        if part in ['BarraCuda', 'IronWolf', 'WD', 'Toshiba']: specs['hdd_series'] = part
     spec_parts = [part.strip() for part in spec_string.split('/')]
     for part in spec_parts:
-        if '용량' in spec_string and ('TB' in part or 'GB' in part): specs['disk_capacity'] = part
-        if 'RPM' in part: specs['rotation_speed'] = part
-        if '버퍼' in part: specs['buffer_capacity'] = part
-        if 'A/S' in part: specs['hdd_warranty'] = part
+        if any(s in part for s in ['BarraCuda', 'IronWolf', 'WD', 'P300']): specs['hdd_series'] = part
+        elif ('TB' in part or 'GB' in part): specs['disk_capacity'] = part
+        elif 'RPM' in part: specs['rotation_speed'] = part
+        elif '버퍼' in part: specs['buffer_capacity'] = part
+        elif 'A/S' in part: specs['hdd_warranty'] = part
+            
     return specs
 
 def parse_case_specs(name, spec_string):
-    """[수정] 키워드 없이 값의 패턴을 분석하도록 파싱 로직 강화"""
+    """케이스 파싱 로직 개선"""
     specs = {}
     if name: specs['manufacturer'] = name.split()[0]
     spec_parts = [part.strip() for part in spec_string.split('/')]
@@ -226,23 +228,26 @@ def parse_case_specs(name, spec_string):
         if 'PC케이스' in part: specs['product_type'] = part
         elif '타워' in part: specs['case_size'] = part
         elif 'ATX' in part or 'ITX' in part: specs['supported_board'] = part
-        elif '강화유리' in part or '메쉬' in part or '아크릴' in part: specs['side_panel'] = part
+        elif '강화유리' in part or '메쉬' in part: specs['side_panel'] = part
         elif '파워 장착' in part: specs['psu_length'] = part
-        elif '그래픽카드 장착' in part: specs['vga_length'] = part
-        elif 'CPU 쿨러 장착' in part: specs['cpu_cooler_height_limit'] = part
+        elif 'VGA 장착' in part or '그래픽카드 장착' in part: specs['vga_length'] = part
+        elif '쿨러 장착' in part or 'CPU 쿨러 장착' in part: specs['cpu_cooler_height_limit'] = part
+            
     return specs
 
 def parse_power_specs(name, spec_string):
+    """파워 파싱 로직 개선"""
     specs = {}
     if name: specs['manufacturer'] = name.split()[0]
     spec_parts = [part.strip() for part in spec_string.split('/')]
     for part in spec_parts:
-        if '파워' in part and ('ATX' in part or 'SFX' in part): specs['product_type'] = part
-        if '정격출력' in part: specs['rated_output'] = part
-        if '80PLUS' in part: specs['eighty_plus_cert'] = part
-        if 'ETA인증' in part: specs['eta_cert'] = part
-        if '케이블연결' in part: specs['cable_connection'] = part
-        if 'PCIe 16핀' in part: specs['pcie_16pin'] = part
+        if '파워' in part: specs['product_type'] = part
+        elif '정격출력' in part or ('W' in part and 'rated_output' not in specs): specs['rated_output'] = part
+        elif '80PLUS' in part: specs['eighty_plus_cert'] = part
+        elif 'ETA' in part: specs['eta_cert'] = part
+        elif '케이블연결' in part: specs['cable_connection'] = part
+        elif '16핀' in part: specs['pcie_16pin'] = part
+            
     return specs
 
 PARSER_MAP = {
