@@ -2,7 +2,7 @@ import re
 from playwright.sync_api import sync_playwright
 from bs4 import BeautifulSoup
 from sqlalchemy import create_engine, text
-from playwright_stealth import stealth_sync
+from playwright_stealth import stealth
 
 # --- 1. 기본 설정 ---
 # 이 부분의 값을 변경하여 크롤러 동작을 제어할 수 있습니다.
@@ -418,7 +418,7 @@ def run_crawler():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=HEADLESS_MODE, slow_mo=SLOW_MOTION) 
         page = browser.new_page()
-        stealth_sync(page)
+        stealth(page)
         
         page.set_extra_http_headers({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"})
 

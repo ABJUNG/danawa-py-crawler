@@ -6,6 +6,9 @@ import ComparisonModal from './ComparisonModal'; // ComparisonModal import
 const CATEGORIES = ['CPU', '쿨러', '메인보드', 'RAM', '그래픽카드', 'SSD', 'HDD', '파워', '케이스'];
 const ITEMS_PER_PAGE = 21;
 
+// 백엔드 API 기본 URL 설정 (Docker 환경에서는 backend:8080, 로컬에서는 localhost:8080)
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://backend:8080';
+
 // (FILTER_LABELS, FILTER_ORDER_MAP, generateSpecString 함수는 기존과 동일)
 const FILTER_LABELS = {
   manufacturer: '제조사',
@@ -191,7 +194,7 @@ function App() {
         params.append('keyword', keyword);
       }
       
-      const response = await axios.get(`/api/parts?${params.toString()}`);
+      const response = await axios.get(`${API_BASE_URL}/api/parts?${params.toString()}`);
       
       setParts(response.data.content);
       setTotalPages(response.data.totalPages);
@@ -224,7 +227,7 @@ function App() {
     const loadCategoryData = async () => {
       setIsLoading(true);
       try {
-        const filtersRes = await axios.get(`/api/filters?category=${selectedCategory}`);
+        const filtersRes = await axios.get(`${API_BASE_URL}/api/filters?category=${selectedCategory}`);
         setAvailableFilters(filtersRes.data);
       } catch (error) {
         console.error("필터 목록을 불러오는 중 오류가 발생했습니다.", error);
