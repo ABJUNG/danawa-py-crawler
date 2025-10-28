@@ -1,0 +1,6 @@
+playwright
+beautifulsoup4
+sqlalchemy
+mysql-connector-python
+playwright-stealth
+lxml # BeautifulSoup가 lxml을 사용하므로 추가

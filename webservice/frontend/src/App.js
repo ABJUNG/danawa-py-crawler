@@ -283,7 +283,7 @@ function App() {
     setCurrentPage(pageNumber);
     fetchParts(selectedCategory, selectedFilters, searchTerm, pageNumber, sortOption);
   };
-
+ 
   // --- [추가] 이전 페이지로 이동하는 함수 ---
   const handlePrevPage = () => {
     if (currentPage > 0) {
