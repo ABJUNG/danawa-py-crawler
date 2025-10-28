@@ -2,7 +2,7 @@ import re
 from playwright.sync_api import sync_playwright
 from bs4 import BeautifulSoup
 from sqlalchemy import create_engine, text
-from playwright_stealth import stealth
+# NOTE: playwright_stealth usage removed due to version API mismatch
 
 # --- 1. 기본 설정 ---
 # 이 부분의 값을 변경하여 크롤러 동작을 제어할 수 있습니다.
@@ -11,7 +11,7 @@ from playwright_stealth import stealth
 CRAWL_PAGES = 2 
 
 # 브라우저 창을 띄울지 여부 (True: 숨김, False: 보임 - 디버깅 및 안정성에 유리)
-HEADLESS_MODE = False
+HEADLESS_MODE = True
 
 # 각 동작 사이의 지연 시간 (ms). 봇 탐지를 피하고 안정성을 높임 (50~100 추천)
 SLOW_MOTION = 50
@@ -19,7 +19,7 @@ SLOW_MOTION = 50
 # --- 2. DB 설정 ---
 DB_USER = 'root'
 DB_PASSWORD = '1234'  # 실제 비밀번호로 수정
-DB_HOST = 'localhost'
+DB_HOST = 'db'
 DB_PORT = '3306'
 DB_NAME = 'danawa'
 
@@ -418,7 +418,7 @@ def run_crawler():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=HEADLESS_MODE, slow_mo=SLOW_MOTION) 
         page = browser.new_page()
-        stealth(page)
+        # Stealth behavior disabled (UA header still applied below)
         
         page.set_extra_http_headers({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"})
 
