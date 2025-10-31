@@ -45,7 +45,7 @@ public class PartService {
         List<String> columns = FILTERABLE_COLUMNS.get(category);
 
         if (columns == null) return availableFilters;
-
+        /*
         for (String columnFieldName : columns) {
             if ("coolerHeight".equals(columnFieldName) && "쿨러".equals(category)) {
                 Set<String> heightRanges = getHeightRanges();
@@ -68,10 +68,12 @@ public class PartService {
                 availableFilters.put(columnFieldName, new HashSet<>(results));
             }
         }
+        */
         return availableFilters;
     }
 
     private Set<String> getHeightRanges() {
+        /*  
         Query query = em.createNativeQuery("SELECT DISTINCT CAST(cooler_height AS REAL) FROM parts WHERE category = '쿨러' AND cooler_height IS NOT NULL", Double.class);
         @SuppressWarnings("unchecked")
         List<Double> heights = query.getResultList();
@@ -94,6 +96,8 @@ public class PartService {
             else if (h > 0) ranges.add("~3mm");
         }
         return ranges;
+         */
+        return new TreeSet<>(); // 빈 Set 반환
     }
 
     public Page<Part> findByFilters(MultiValueMap<String, String> filters, Pageable pageable) {
@@ -119,6 +123,7 @@ public class PartService {
                     predicate = cb.and(predicate, root.get("category").in(values));
                 } else if (key.equals("keyword")) {
                     predicate = cb.and(predicate, cb.like(root.get("name"), "%" + values.get(0) + "%"));
+                /*
                 } else if (key.equals("coolerHeight")) {
                     Predicate[] heightPredicates = values.stream().map(range -> {
                         Matcher m = Pattern.compile("(\\d+(\\.\\d+)?)").matcher(range);
@@ -139,7 +144,7 @@ public class PartService {
                         predicate = cb.and(predicate, cb.or(heightPredicates));
                     }
                 } else if (allFilterKeys.contains(key)) {
-                    predicate = cb.and(predicate, root.get(key).in(values));
+                    predicate = cb.and(predicate, root.get(key).in(values)); */
                 }
             }
             return predicate;

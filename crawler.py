@@ -2,13 +2,17 @@ import re
 from playwright.sync_api import sync_playwright
 from bs4 import BeautifulSoup
 from sqlalchemy import create_engine, text
-# NOTE: playwright_stealth usage removed due to version API mismatch
+import json
+import time
+from playwright_stealth import stealth_sync
+from urllib.parse import quote_plus
+
 
 # --- 1. 기본 설정 ---
 # 이 부분의 값을 변경하여 크롤러 동작을 제어할 수 있습니다.
 
 # 크롤링할 페이지 수 (예: 2로 설정하면 각 카테고리별로 2페이지까지 수집)
-CRAWL_PAGES = 2 
+CRAWL_PAGES = 1 
 
 # 브라우저 창을 띄울지 여부 (True: 숨김, False: 보임 - 디버깅 및 안정성에 유리)
 HEADLESS_MODE = True
@@ -29,20 +33,6 @@ CATEGORIES = {
     '그래픽카드': 'vga', 'SSD': 'ssd', 'HDD': 'hdd', '케이스': 'pc case', '파워': 'power'
 }
 
-# --- 4. DB 테이블의 모든 스펙 컬럼 목록 ---
-# DB에 데이터를 저장할 때 사용할 마스터 키 리스트
-ALL_SPEC_KEYS = [
-    "manufacturer", "codename", "cpu_series", "cpu_class", "socket", "cores", "threads", "integrated_graphics",
-    "product_type", "cooling_method", "air_cooling_form", "cooler_height", "radiator_length", "fan_size", "fan_connector",
-    "chipset", "form_factor", "memory_spec", "memory_slots", "vga_connection", "m2_slots", "wireless_lan",
-    "device_type", "capacity", "ram_count", "clock_speed", "ram_timing", "heatsink_presence", "product_class",
-    "nvidia_chipset", "amd_chipset", "intel_chipset", "gpu_interface", "gpu_memory_capacity", "output_ports", 
-    "recommended_psu", "fan_count", "gpu_length", "ssd_interface", "memory_type", "ram_mounted", 
-    "sequential_read", "sequential_write", "hdd_series", "disk_capacity", "rotation_speed", "buffer_capacity", "hdd_warranty",
-    "case_size", "supported_board", "side_panel", "psu_length", "vga_length", "cpu_cooler_height_limit",
-    "rated_output", "eighty_plus_cert", "eta_cert", "cable_connection", "pcie_16pin"
-]
-
 # --- 5. SQLAlchemy 엔진 생성 ---
 try:
     engine = create_engine(f'mysql+mysqlconnector://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}')
@@ -51,14 +41,6 @@ try:
 except Exception as e:
     print(f"DB 연결 실패: {e}")
     exit()
-
-# --- 6. 각 카테고리별 파싱 함수들 ---
-
-COOLER_PRODUCT_TYPES = [
-    'CPU 쿨러', '써멀컴파운드', '시스템 쿨러', 'M.2 SSD 쿨러', 'RAM 쿨러',
-    'VGA 쿨러', 'HDD 쿨러', '팬컨트롤러', '써멀패드', '써멀퍼티',
-    '조명기기', '방열판', 'VGA 지지대', '가이드', '팬 부속품', '수랭 부속품', '튜닝 용품'
-]
 
 def parse_cpu_specs(name, spec_string):
     """[최종 완성] P+E코어, 복합 스레드 등 모든 최신 CPU 스펙을 완벽하게 지원하는 파서"""
@@ -263,63 +245,47 @@ PARSER_MAP = {
 }
 
 def scrape_category(page, category_name, query):
-    sql = text("""
+    # --- 1. (신규) parts 테이블 INSERT SQL ---
+    # ON DUPLICATE KEY UPDATE: 이미 수집된 상품(link 기준)이면 가격, 리뷰 수 등만 업데이트합니다.
+    sql_parts = text("""
         INSERT INTO parts (
-            name, category, price, link, img_src, manufacturer, review_count, star_rating, rating_review_count,
-            -- CPU
-            codename, cpu_series, cpu_class, socket, cores, threads, integrated_graphics,
-            -- 쿨러
-            product_type, cooling_method, air_cooling_form, cooler_height, radiator_length, fan_size, fan_connector,
-            -- 메인보드
-            chipset, form_factor, memory_spec, memory_slots, vga_connection, m2_slots, wireless_lan,
-            -- RAM
-            device_type, capacity, ram_count, clock_speed, ram_timing, heatsink_presence, product_class,
-            -- 그래픽카드
-            nvidia_chipset, amd_chipset, intel_chipset, gpu_interface, gpu_memory_capacity, output_ports, recommended_psu, fan_count, gpu_length,
-            -- SSD
-            ssd_interface, memory_type, ram_mounted, sequential_read, sequential_write,
-            -- HDD
-            hdd_series, disk_capacity, rotation_speed, buffer_capacity, hdd_warranty,
-            -- 케이스
-            case_size, supported_board, side_panel, psu_length, vga_length, cpu_cooler_height_limit,
-            -- 파워
-            rated_output, eighty_plus_cert, eta_cert, cable_connection, pcie_16pin
+            name, category, price, link, img_src, manufacturer, 
+            review_count, star_rating, warranty_info
         ) VALUES (
-            :name, :category, :price, :link, :img_src, :manufacturer, :review_count, :star_rating, :rating_review_count,
-            :codename, :cpu_series, :cpu_class, :socket, :cores, :threads, :integrated_graphics,
-            :product_type, :cooling_method, :air_cooling_form, :cooler_height, :radiator_length, :fan_size, :fan_connector,
-            :chipset, :form_factor, :memory_spec, :memory_slots, :vga_connection, :m2_slots, :wireless_lan,
-            :device_type, :capacity, :ram_count, :clock_speed, :ram_timing, :heatsink_presence, :product_class,
-            :nvidia_chipset, :amd_chipset, :intel_chipset, :gpu_interface, :gpu_memory_capacity, :output_ports, :recommended_psu, :fan_count, :gpu_length,
-            :ssd_interface, :memory_type, :ram_mounted, :sequential_read, :sequential_write,
-            :hdd_series, :disk_capacity, :rotation_speed, :buffer_capacity, :hdd_warranty,
-            :case_size, :supported_board, :side_panel, :psu_length, :vga_length, :cpu_cooler_height_limit,
-            :rated_output, :eighty_plus_cert, :eta_cert, :cable_connection, :pcie_16pin
+            :name, :category, :price, :link, :img_src, :manufacturer,
+            :review_count, :star_rating, :warranty_info
         )
         ON DUPLICATE KEY UPDATE
-            price=VALUES(price), review_count=VALUES(review_count), star_rating=VALUES(star_rating), rating_review_count=VALUES(rating_review_count), manufacturer=VALUES(manufacturer),
-            -- CPU
-            codename=VALUES(codename), cpu_series=VALUES(cpu_series), cpu_class=VALUES(cpu_class), socket=VALUES(socket), cores=VALUES(cores), threads=VALUES(threads), integrated_graphics=VALUES(integrated_graphics),
-            -- 쿨러
-            product_type=VALUES(product_type), cooling_method=VALUES(cooling_method), air_cooling_form=VALUES(air_cooling_form), cooler_height=VALUES(cooler_height), radiator_length=VALUES(radiator_length), fan_size=VALUES(fan_size), fan_connector=VALUES(fan_connector),
-            -- 메인보드
-            chipset=VALUES(chipset), form_factor=VALUES(form_factor), memory_spec=VALUES(memory_spec), memory_slots=VALUES(memory_slots), vga_connection=VALUES(vga_connection), m2_slots=VALUES(m2_slots), wireless_lan=VALUES(wireless_lan),
-            -- RAM
-            device_type=VALUES(device_type), capacity=VALUES(capacity), ram_count=VALUES(ram_count), clock_speed=VALUES(clock_speed), ram_timing=VALUES(ram_timing), heatsink_presence=VALUES(heatsink_presence), product_class=VALUES(product_class),
-            -- 그래픽카드
-            nvidia_chipset=VALUES(nvidia_chipset), amd_chipset=VALUES(amd_chipset), intel_chipset=VALUES(intel_chipset), gpu_interface=VALUES(gpu_interface), gpu_memory_capacity=VALUES(gpu_memory_capacity), output_ports=VALUES(output_ports), recommended_psu=VALUES(recommended_psu), fan_count=VALUES(fan_count), gpu_length=VALUES(gpu_length),
-            -- SSD
-            ssd_interface=VALUES(ssd_interface), memory_type=VALUES(memory_type), ram_mounted=VALUES(ram_mounted), sequential_read=VALUES(sequential_read), sequential_write=VALUES(sequential_write),
-            -- HDD
-            hdd_series=VALUES(hdd_series), disk_capacity=VALUES(disk_capacity), rotation_speed=VALUES(rotation_speed), buffer_capacity=VALUES(buffer_capacity), hdd_warranty=VALUES(hdd_warranty),
-            -- 케이스
-            case_size=VALUES(case_size), supported_board=VALUES(supported_board), side_panel=VALUES(side_panel), psu_length=VALUES(psu_length), vga_length=VALUES(vga_length), cpu_cooler_height_limit=VALUES(cpu_cooler_height_limit),
-            -- 파워
-            rated_output=VALUES(rated_output), eighty_plus_cert=VALUES(eighty_plus_cert), eta_cert=VALUES(eta_cert), cable_connection=VALUES(cable_connection), pcie_16pin=VALUES(pcie_16pin);
+            price=VALUES(price), review_count=VALUES(review_count), 
+            star_rating=VALUES(star_rating), manufacturer=VALUES(manufacturer), 
+            warranty_info=VALUES(warranty_info)
     """)
     
+    # --- 2. (신규) part_specs 테이블 INSERT SQL ---
+    # ON DUPLICATE KEY UPDATE: 이미 스펙이 있으면 새 스펙으로 덮어씁니다.
+    sql_specs = text("""
+        INSERT INTO part_spec (part_id, specs)
+        VALUES (:part_id, :specs)
+        ON DUPLICATE KEY UPDATE
+            specs=VALUES(specs)
+    """)
+
+    # --- 3. (신규) community_reviews 테이블 INSERT SQL ---
+    # ON DUPLICATE KEY UPDATE: review_url이 이미 존재하면 무시(아무것도 안 함)
+    sql_review = text("""
+        INSERT INTO community_reviews (
+            part_id, source, review_type, review_url, raw_text
+        ) VALUES (
+            :part_id, :source, :review_type, :review_url, :raw_text
+        )
+        ON DUPLICATE KEY UPDATE
+            part_id = part_id 
+    """)
+    # --- 4. (신규) 퀘이사존 리뷰 존재 여부 확인 SQL ---
+    sql_check_review = text("SELECT EXISTS (SELECT 1 FROM community_reviews WHERE part_id = :part_id)")
+
     with engine.connect() as conn:
-        for page_num in range(1, 2):
+        for page_num in range(1, CRAWL_PAGES + 1): # CRAWL_PAGES 변수 사용하도록 수정
             url = f'https://search.danawa.com/dsearch.php?query={query}&page={page_num}'
             print(f"--- '{category_name}' 카테고리, {page_num}페이지 목록 수집 ---")
             
@@ -327,6 +293,7 @@ def scrape_category(page, category_name, query):
                 page.goto(url, wait_until='load', timeout=20000)
                 page.wait_for_selector('ul.product_list', timeout=10000)
 
+                # 페이지 스크롤 다운 (기존 로직 유지)
                 for _ in range(3):
                     page.mouse.wheel(0, 1500)
                     page.wait_for_timeout(500)
@@ -361,72 +328,303 @@ def scrape_category(page, category_name, query):
                         print(f"  - 가격 정보가 유효하지 않아 건너뜁니다: {name} (값: {price_tag.text.strip()})")
                         continue
                     
-                     # [핵심 수정] 리뷰, 별점, 리뷰 수 수집 로직 전면 개편
+                    # 리뷰, 별점 수집 (기존 로직 유지)
                     review_count = 0
                     star_rating = 0.0
-                    rating_review_count = 0
+                    rating_review_count = 0 # (참고: 이 값은 현재 DB에 저장되지 않음)
 
-                    # prod_sub_info 영역에서 모든 meta_item을 찾음
                     meta_items = item.select('.prod_sub_meta .meta_item')
                     for meta in meta_items:
-                        # '상품의견' 텍스트가 있는지 확인
                         if '상품의견' in meta.text:
                             count_tag = meta.select_one('.dd strong')
                             if count_tag and (match := re.search(r'[\d,]+', count_tag.text)):
                                 review_count = int(match.group().replace(',', ''))
                         
-                        # '상품리뷰' 텍스트가 있는지 확인
                         elif '상품리뷰' in meta.text:
                             score_tag = meta.select_one('.text__score')
                             if score_tag:
                                 try: star_rating = float(score_tag.text.strip())
                                 except (ValueError, TypeError): star_rating = 0.0
-                            
-                            review_num_tag = meta.select_one('.text__number')
-                            if review_num_tag:
-                                try: rating_review_count = int(review_num_tag.text.strip().replace(',', ''))
-                                except (ValueError, TypeError): rating_review_count = 0
                     
                     spec_tag = item.select_one('div.spec_list')
                     spec_string = spec_tag.text.strip() if spec_tag else ""
                     
+                    # --- 3. (수정) 파서 호출 및 보증 기간(warrantyInfo) 추출 ---
                     parser_func = PARSER_MAP.get(category_name)
                     detailed_specs = parser_func(name, spec_string) if parser_func else {}
-
-
-                    base_params = {
-                        "name": name, "category": category_name, "price": price, "link": link, 
-                        "img_src": img_src, "review_count": review_count,
-                        "star_rating": star_rating, "rating_review_count": rating_review_count
+                    
+                    # 스펙 문자열에서 '보증' 정보 추출 (AI 판단 근거)
+                    warranty_info = None
+                    warranty_match = re.search(r'(?:A/S|보증)\s*([\w\d년개월\s]+)', spec_string)
+                    if warranty_match:
+                        warranty_info = warranty_match.group(1).strip()
+                    
+                    # 제조사 정보는 detailed_specs에서 가져오거나 이름에서 추출
+                    manufacturer = detailed_specs.get("manufacturer")
+                    if not manufacturer and name:
+                        manufacturer = name.split()[0]
+                    
+                    # --- 4. (신규) 1단계: `parts` 테이블에 공통 정보 저장 ---
+                    parts_params = {
+                        "name": name, "category": category_name, "price": price, "link": link,
+                        "img_src": img_src, "manufacturer": manufacturer, 
+                        "review_count": review_count, "star_rating": star_rating,
+                        "warranty_info": warranty_info
                     }
                     
-                    final_params = {key: None for key in ALL_SPEC_KEYS}
-                    final_params.update(base_params)
-                    final_params.update(detailed_specs)
-                    
-                    conn.execute(sql, final_params)
-                    print(f"  ✅ {name} (댓글: {review_count})")
-                
-                conn.commit()
+                    # 트랜잭션 시작 (중요)
+                    trans = conn.begin()
+                    try:
+                        # parts 테이블에 삽입
+                        result = conn.execute(sql_parts, parts_params)
+                        
+                        # 방금 INSERT된 part_id 또는 이미 존재하는 part_id 가져오기
+                        part_id = None
+                        if result.lastrowid: # 새 데이터가 INSERT 된 경우
+                            part_id = result.lastrowid
+                        else: # ON DUPLICATE KEY UPDATE가 발생한 경우 (link 기준)
+                            find_id_sql = text("SELECT id FROM parts WHERE link = :link")
+                            part_id_result = conn.execute(find_id_sql, {"link": link})
+                            part_id = part_id_result.scalar_one_or_none()
+
+                        if part_id:
+                            # --- 5. (신규) 2단계: `part_specs` 테이블에 세부 스펙 저장 ---
+                            
+                            # detailed_specs 딕셔너리를 JSON 문자열로 변환
+                            # ensure_ascii=False: 한글이 깨지지 않도록 함
+                            specs_json = json.dumps(detailed_specs, ensure_ascii=False)
+                            
+                            specs_params = {
+                                "part_id": part_id,
+                                "specs": specs_json
+                            }
+                            
+                            # part_specs 테이블에 삽입/업데이트
+                            conn.execute(sql_specs, specs_params)
+
+                        # --- (수정) 3단계: 퀘이사존 리뷰 수집 ---
+                        if part_id: # part_id를 성공적으로 가져왔다면
+                            # 퀘이사존 리뷰가 DB에 이미 저장되어 있는지 확인
+                            review_exists_result = conn.execute(sql_check_review, {"part_id": part_id})
+                            review_exists = review_exists_result.scalar() == 1 # (True 또는 False)
+
+                            if not review_exists:
+                                print(f"    -> 퀘이사존 리뷰 없음, 수집 시도...")
+                                # (신규) category_name과 detailed_specs를 인자로 추가 전달
+                                scrape_quasarzone_reviews(page, conn, sql_review, part_id, name, category_name, detailed_specs)
+                            # else:
+                                # (선택적) 이미 리뷰가 있다면 건너뛰었다고 로그 표시
+                                # print(f"    -> (건너뜀) 이미 퀘이사존 리뷰가 수집된 상품입니다.")
+
+                        trans.commit() # 트랜잭션 완료
+                        print(f"  ✅ {name} (댓글: {review_count})")
+                        
+                    except Exception as e:
+                        trans.rollback() # 오류 발생 시 롤백
+                        print(f"  ❌ {name} 저장 중 오류 발생: {e}")
 
             except Exception as e:
                 print(f"--- {page_num}페이지 처리 중 오류 발생: {e}. 다음 페이지로 넘어갑니다. ---")
-                conn.rollback() 
                 continue
+
+# --- run_crawler 함수 수정 (CRAWL_PAGES 변수 전달) ---
+# 기존 run_crawler 함수를 찾아서 scrape_category 호출 부분을 수정합니다.
+
 
 def run_crawler():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=HEADLESS_MODE, slow_mo=SLOW_MOTION) 
         page = browser.new_page()
-        # Stealth behavior disabled (UA header still applied below)
-        
+        stealth_sync(page)
         page.set_extra_http_headers({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"})
 
         for category_name, query in CATEGORIES.items():
+            # CRAWL_PAGES 변수를 사용하도록 scrape_category 함수를 수정했으므로
+            # 이 부분은 변경할 필요 없이 그대로 둡니다.
             scrape_category(page, category_name, query)
-            
         browser.close()
         print("\n모든 카테고리 데이터 수집을 완료했습니다.")
+
+# --- (신규) 퀘이사존 검색을 위한 핵심 키워드 추출 함수 ---
+def get_search_keyword(part_name, category_name, detailed_specs):
+    """
+    상품명과 카테고리, 파싱된 스펙을 기반으로 퀘이사존 검색에 가장 적합한
+    핵심 키워드(예: '7500F', 'RTX 4070', 'B650')를 추출합니다.
+    """
+    
+    # 1. GPU/메인보드는 파싱된 칩셋 이름이 가장 정확함
+    if category_name == '그래픽카드':
+        keyword = detailed_specs.get('nvidia_chipset') or \
+                  detailed_specs.get('amd_chipset') or \
+                  detailed_specs.get('intel_chipset')
+        if keyword:
+            # "GeForce RTX 4070" -> "RTX 4070"
+            return keyword.replace("GeForce", "").strip()
+
+    if category_name == '메인보드':
+        keyword = detailed_specs.get('chipset') # 예: B760, X670
+        if keyword: return keyword
+
+    # 2. CPU (Regex로 모델명 추출 시도)
+    if category_name == 'CPU':
+        # 예: 7500F, 14400F, 7800X3D, 265K (신형 모델)
+        # (7800X3D, 14900KF, 7500F, 5600, 265K, 245K, 9600X 등)
+        match = re.search(r'(\d{4,5}\w*(?:F|K|X|G|3D)*|\d{3}[K])', part_name, re.I)
+        if match:
+            return match.group(1)
+
+    # 3. 기타 부품 (이름에서 제조사 + 괄호 내용 제외)
+    # 예: "MSI MAG A750GL 80PLUS골드..." -> "MAG A750GL"
+    search_query = " ".join(part_name.split()[1:]) # 기본 (제조사 제외)
+    search_query = re.sub(r'\([^)]+\)', '', search_query).strip() # 괄호 내용 제거
+    search_query = re.sub(r'(\d{3,4}W)', '', search_query).strip() # 파워 용량(W) 제거
+    
+    # 너무 길면 앞 2~3 단어만 사용
+    if len(search_query.split()) > 3:
+        search_query = " ".join(search_query.split()[:3])
+        
+    return search_query
+
+# --- (수정) 퀘이사존 리뷰 크롤링 함수 (봇 우회 강화) ---
+def scrape_quasarzone_reviews(page, conn, sql_review, part_id, part_name, category_name, detailed_specs):
+    """
+    (봇 우회 강화) 메인 리뷰 페이지를 경유한 후,
+    핵심 키워드로 퀘이사존 통합검색을 수행하고, 결과가 나올 때까지 대기한 후
+    '리뷰/벤치마크' 게시판의 글을 수집하여 DB에 저장합니다.
+    """
+    try:
+        search_keyword = get_search_keyword(part_name, category_name, detailed_specs)
+        if not search_keyword:
+            print(f"      -> (정보) '{part_name}'에 대한 핵심 키워드 추출 불가, 건너뜀.")
+            return
+
+        # --- (신규) 1. 봇 우회를 위해 메인 리뷰 페이지를 먼저 방문 (쿠키/세션 획득) ---
+        try:
+            print(f"      -> (봇 우회) 퀘이사존 메인 리뷰 페이지 방문 시도...")
+            page.goto("https://quasarzone.com/bbs/qc_qsz", wait_until='networkidle', timeout=10000)
+            page.wait_for_timeout(1000) # 1초 대기
+        except Exception as e:
+            print(f"      -> (경고) 메인 페이지 방문 실패 (무시하고 계속): {e}")
+        # --- (신규 1. 끝) ---
+
+        # 다양한 검색 전략(키워드/엔드포인트) 시도
+        keyword_candidates = [search_keyword]
+        # 숫자형 CPU 모델이면 국문/영문 접두사 변형 추가 (예: "라이젠 7500F", "Ryzen 7500F")
+        if re.search(r"\d{3,5}", search_keyword):
+            keyword_candidates += [f"라이젠 {search_keyword}", f"Ryzen {search_keyword}"]
+
+        url_templates = [
+            # 전역 검색(제목)
+            lambda kw: f"https://quasarzone.com/searches?keyword={quote_plus(kw)}&kind=subject",
+            # 전역 검색(제목+본문)
+            lambda kw: f"https://quasarzone.com/searches?keyword={quote_plus(kw)}&kind=subject_content",
+            # 칼럼/리뷰 그룹 검색
+            lambda kw: f"https://quasarzone.com/groupSearches?group_id=columns&keyword={quote_plus(kw)}&kind=subject",
+            # 벤치마크 게시판 내 검색(제목)
+            lambda kw: f"https://quasarzone.com/bbs/qc_bench?keyword={quote_plus(kw)}&kind=subject",
+            # 리뷰/칼럼 게시판 내 검색(제목)
+            lambda kw: f"https://quasarzone.com/bbs/qc_qsz?keyword={quote_plus(kw)}&kind=subject",
+        ]
+
+        # 3. 찾으려는 선택자 정의
+        links_selector = (
+            'a[href*="/bbs/qc_qsz/views/"], '
+            'a[href*="/bbs/qc_bench/views/"]'
+        )
+
+        found_links = []
+        tried = 0
+        for kw in keyword_candidates:
+            for build_url in url_templates:
+                q_url = build_url(kw)
+                tried += 1
+                print(f"      -> 퀘이사존 검색 (키워드: {kw}): {q_url}")
+                try:
+                    page.goto(q_url, wait_until='networkidle', timeout=30000)
+                except Exception:
+                    continue
+
+                for _ in range(3):
+                    page.mouse.wheel(0, 1500)
+                    page.wait_for_timeout(600)
+
+                try:
+                    page.wait_for_selector('body', timeout=5000)
+                except Exception:
+                    pass
+
+                # 우선 locator로 시도
+                review_links = page.locator(links_selector)
+                cnt = review_links.count()
+                if cnt == 0:
+                    # 폴백: BeautifulSoup으로 파싱
+                    html = page.content()
+                    soup = BeautifulSoup(html, 'lxml')
+                    soup_links = soup.select('a[href*="/bbs/qc_qsz/views/"], a[href*="/bbs/qc_bench/views/"]')
+                    if soup_links:
+                        found_links = [a.get('href') for a in soup_links if a.get('href')][:3]
+                        break
+                else:
+                    found_links = []
+                    for i in range(min(cnt, 3)):
+                        href = review_links.nth(i).get_attribute('href')
+                        if href:
+                            found_links.append(href)
+                    break
+            if found_links:
+                break
+
+        if not found_links:
+            print(f"      -> (정보) 퀘이사존에서 '{search_keyword}'에 대한 리뷰/벤치마크를 찾지 못했습니다. (Count 0)")
+            return
+
+        print(f"      -> {len(found_links)}개의 리뷰 링크 발견. 최대 3개 수집 시도...")
+        
+        count = 0
+        # 최대 3개의 리뷰만 수집
+        for i, href in enumerate(found_links[:3]):
+            review_url = href or ''
+            if review_url and not review_url.startswith('https://'):
+                review_url = f"https://quasarzone.com{review_url}"
+
+            print(f"        -> [{i+1}/{min(len(found_links), 3)}] 리뷰 페이지 이동: {review_url}")
+            page.goto(review_url, wait_until='load', timeout=15000)
+            page.wait_for_timeout(1000) # 봇 탐지 방지 대기
+
+            content_element = page.locator('.view-content')
+            if not content_element.is_visible(timeout=5000):
+                print("        -> (오류) 리뷰 본문을 찾을 수 없습니다. (timeout)")
+                continue
+            
+            raw_text = content_element.inner_text()
+            
+            if len(raw_text) < 100:
+                print("        -> (건너뜀) 리뷰 본문이 너무 짧습니다. (100자 미만)")
+                continue
+
+            # DB에 저장
+            review_params = {
+                "part_id": part_id,
+                "source": "퀘이사존",
+                "review_type": "전문가 리뷰",
+                "review_url": review_url,
+                "raw_text": raw_text
+            }
+            
+            conn.execute(sql_review, review_params)
+            count += 1
+            time.sleep(1) # 봇 차단 방지를 위한 1초 대기
+
+        if count > 0:
+            print(f"      -> 퀘이사존 리뷰 {count}건 저장 완료.")
+        
+    except Exception as e:
+        if "Target page, context or browser has been closed" in str(e):
+            print("      -> (치명적 오류) 크롤러 페이지가 닫혔습니다. 중단합니다.")
+            raise 
+        
+        print(f"      -> (경고) 퀘이사존 리뷰 수집 중 오류 발생 (무시함): {type(e).__name__} - {str(e)[:100]}...")
+        pass
 
 if __name__ == "__main__":
     run_crawler()

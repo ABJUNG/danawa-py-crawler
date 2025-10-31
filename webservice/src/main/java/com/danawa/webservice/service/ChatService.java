@@ -8,6 +8,8 @@ import org.springframework.data.domain.PageRequest; // DB 조회 위해 추가
 import org.springframework.data.domain.Sort; // DB 조회 위해 추가
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.danawa.webservice.domain.PartSpec;
+import org.json.JSONObject;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -87,15 +89,44 @@ public class ChatService {
     }
 
     // 부품 스펙 요약 문자열 만들기 (간단 예시)
+    // 부품 스펙 요약 문자열 만들기 (JSON 파싱 방식으로 수정)
     private String buildSpecString(Part part) {
-        // PartService.java의 generateSpecString 함수 로직 활용 가능
-        if ("CPU".equals(part.getCategory())) {
-            return String.format("%s / %s / %s", part.getCores(), part.getThreads(), part.getSocket());
+        // 1. PartSpec 엔티티를 가져옵니다.
+        PartSpec partSpec = part.getPartSpec();
+        if (partSpec == null || partSpec.getSpecs() == null) {
+            return "상세 스펙 정보 없음";
         }
-        if ("그래픽카드".equals(part.getCategory())) {
-            return String.format("%s / %s", (part.getNvidiaChipset() != null ? part.getNvidiaChipset() : part.getAmdChipset()), part.getGpuMemoryCapacity());
+
+        try {
+            // 2. specs 컬럼의 JSON 문자열을 파싱합니다.
+            JSONObject specs = new JSONObject(partSpec.getSpecs());
+
+            // 3. 카테고리별로 JSON에서 스펙을 꺼내 씁니다.
+            if ("CPU".equals(part.getCategory())) {
+                return String.format("%s / %s / %s",
+                        specs.optString("cores", ""), // optString은 키가 없어도 오류 대신 빈 문자열 반환
+                        specs.optString("threads", ""),
+                        specs.optString("socket", ""));
+            }
+            if ("그래픽카드".equals(part.getCategory())) {
+                String chipset = specs.optString("nvidia_chipset", specs.optString("amd_chipset"));
+                return String.format("%s / %s",
+                        chipset,
+                        specs.optString("gpu_memory_capacity", ""));
+            }
+            if ("RAM".equals(part.getCategory())) {
+                return String.format("%s / %s / %s",
+                        specs.optString("capacity", ""),
+                        specs.optString("clock_speed", ""),
+                        specs.optString("product_class", ""));
+            }
+            // ... (필요한 다른 카테고리들도 위와 같은 방식으로 추가) ...
+
+        } catch (Exception e) {
+            // JSON 파싱 중 오류 발생 시
+            return "스펙 처리 중 오류";
         }
-        // ... 다른 카테고리 스펙 요약 로직 추가 ...
+        
         return "상세 스펙 확인 필요";
     }
 
