@@ -4,7 +4,6 @@ import com.danawa.webservice.domain.Part;
 import com.danawa.webservice.repository.PartRepository;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
-import jakarta.persistence.Query;
 import jakarta.persistence.criteria.Predicate;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -15,8 +14,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.MultiValueMap;
 
 import java.util.*;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import com.danawa.webservice.dto.PartResponseDto; // 1. 이 줄을 추가
+import java.util.stream.Collectors; // 2. 이 줄을 추가
 
 @Service
 @Transactional(readOnly = true)
@@ -72,42 +71,24 @@ public class PartService {
         return availableFilters;
     }
 
-    private Set<String> getHeightRanges() {
-        /*  
-        Query query = em.createNativeQuery("SELECT DISTINCT CAST(cooler_height AS REAL) FROM parts WHERE category = '쿨러' AND cooler_height IS NOT NULL", Double.class);
-        @SuppressWarnings("unchecked")
-        List<Double> heights = query.getResultList();
-        Set<String> ranges = new TreeSet<>();
-        for (Double h : heights) {
-            if (h >= 200) ranges.add("200~mm");
-            else if (h >= 170) ranges.add("170~199mm");
-            else if (h >= 160) ranges.add("160~169mm");
-            else if (h >= 150) ranges.add("150~159mm");
-            else if (h >= 125) ranges.add("125~149mm");
-            else if (h >= 100) ranges.add("100~124mm");
-            else if (h >= 75) ranges.add("75~99mm");
-            else if (h >= 50) ranges.add("50~74mm");
-            else if (h >= 19) ranges.add("19~49mm");
-            else if (h >= 16) ranges.add("16~18mm");
-            else if (h >= 13) ranges.add("13~15mm");
-            else if (h >= 10) ranges.add("10~12mm");
-            else if (h >= 7) ranges.add("7~9mm");
-            else if (h >= 4) ranges.add("4~6mm");
-            else if (h > 0) ranges.add("~3mm");
-        }
-        return ranges;
-         */
-        return new TreeSet<>(); // 빈 Set 반환
-    }
+    // 제거된 높이 범위 계산 함수 (현재 필터링 스펙 단순화로 미사용)
 
-    public Page<Part> findByFilters(MultiValueMap<String, String> filters, Pageable pageable) {
+    public Page<PartResponseDto> findByFilters(MultiValueMap<String, String> filters, Pageable pageable) {
         Specification<Part> spec = createSpecification(filters);
-        return partRepository.findAll(spec, pageable);
+        Page<Part> partPage = partRepository.findAll(spec, pageable);
+
+        // Page<Part>를 Page<PartResponseDto>로 변환하여 반환
+        return partPage.map(part -> new PartResponseDto(part));
     }
 
     // [신설] ID 목록으로 부품들을 찾는 서비스 메서드
-    public List<Part> findByIds(List<Long> ids) {
-        return partRepository.findAllById(ids);
+    public List<PartResponseDto> findByIds(List<Long> ids) {
+        List<Part> parts = partRepository.findAllById(ids);
+
+        // List<Part>를 List<PartResponseDto>로 변환하여 반환
+        return parts.stream()
+                .map(part -> new PartResponseDto(part))
+                .collect(Collectors.toList());
     }
 
     private Specification<Part> createSpecification(MultiValueMap<String, String> filters) {
