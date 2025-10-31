@@ -1,6 +1,5 @@
 package com.danawa.webservice.controller;
 
-import com.danawa.webservice.domain.Part;
 import com.danawa.webservice.service.PartService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -13,6 +12,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.danawa.webservice.service.ChatService; // ChatService import 추가
 import org.springframework.web.bind.annotation.PostMapping; // POST 요청 위해 추가
 import org.springframework.web.bind.annotation.RequestBody; // 요청 본문 받기 위해 추가
+import com.danawa.webservice.dto.PartResponseDto;
 
 import java.util.List;
 import java.util.Map;
@@ -30,14 +30,14 @@ public class PartController {
      * 이 부분은 이미 동적으로 잘 구현되어 있으므로 수정할 필요가 없습니다.
      */
     @GetMapping("/api/parts")
-    public Page<Part> getParts(@RequestParam MultiValueMap<String, String> allParams, Pageable pageable) {
+    public Page<PartResponseDto> getParts(@RequestParam MultiValueMap<String, String> allParams, Pageable pageable) {
         return partService.findByFilters(allParams, pageable);
     }
 
     // [신설] ID 목록으로 여러 부품을 조회하는 API
     @GetMapping("/api/parts/compare")
-    public ResponseEntity<List<Part>> getPartsByIds(@RequestParam List<Long> ids) {
-        List<Part> parts = partService.findByIds(ids);
+    public ResponseEntity<List<PartResponseDto>> getPartsByIds(@RequestParam List<Long> ids) {
+        List<PartResponseDto> parts = partService.findByIds(ids);
         return ResponseEntity.ok(parts);
     }
 
