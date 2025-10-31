@@ -274,9 +274,9 @@ def scrape_category(page, category_name, query):
     # ON DUPLICATE KEY UPDATE: review_url이 이미 존재하면 무시(아무것도 안 함)
     sql_review = text("""
         INSERT INTO community_reviews (
-            part_id, source, review_type, review_url, raw_text
+            part_id, source, review_url, raw_text
         ) VALUES (
-            :part_id, :source, :review_type, :review_url, :raw_text
+            :part_id, :source, :review_url, :raw_text
         )
         ON DUPLICATE KEY UPDATE
             part_id = part_id 
@@ -507,116 +507,76 @@ def scrape_quasarzone_reviews(page, conn, sql_review, part_id, part_name, catego
             print(f"      -> (경고) 메인 페이지 방문 실패 (무시하고 계속): {e}")
         # --- (신규 1. 끝) ---
 
-        # 다양한 검색 전략(키워드/엔드포인트) 시도
-        keyword_candidates = [search_keyword]
-        # 숫자형 CPU 모델이면 국문/영문 접두사 변형 추가 (예: "라이젠 7500F", "Ryzen 7500F")
-        if re.search(r"\d{3,5}", search_keyword):
-            keyword_candidates += [f"라이젠 {search_keyword}", f"Ryzen {search_keyword}"]
+        # 단일 검색 실행: 공식기사(칼럼/리뷰) 그룹 제목검색 1회만 수행
+        q_url = (
+            f"https://quasarzone.com/groupSearches?group_id=columns"
+            f"&keyword={quote_plus(search_keyword)}&kind=subject"
+        )
+        print(f"      -> 퀘이사존 공식기사 검색 (키워드: {search_keyword}): {q_url}")
+        try:
+            page.goto(q_url, wait_until='networkidle', timeout=30000)
+        except Exception as e:
+            print(f"      -> (오류) 검색 페이지 로딩 실패: {e}")
+            return
 
-        url_templates = [
-            # 전역 검색(제목)
-            lambda kw: f"https://quasarzone.com/searches?keyword={quote_plus(kw)}&kind=subject",
-            # 전역 검색(제목+본문)
-            lambda kw: f"https://quasarzone.com/searches?keyword={quote_plus(kw)}&kind=subject_content",
-            # 칼럼/리뷰 그룹 검색
-            lambda kw: f"https://quasarzone.com/groupSearches?group_id=columns&keyword={quote_plus(kw)}&kind=subject",
-            # 벤치마크 게시판 내 검색(제목)
-            lambda kw: f"https://quasarzone.com/bbs/qc_bench?keyword={quote_plus(kw)}&kind=subject",
-            # 리뷰/칼럼 게시판 내 검색(제목)
-            lambda kw: f"https://quasarzone.com/bbs/qc_qsz?keyword={quote_plus(kw)}&kind=subject",
-        ]
+        # 가벼운 스크롤로 동적 로딩 유도
+        page.mouse.wheel(0, 1200)
+        page.wait_for_timeout(500)
 
-        # 3. 찾으려는 선택자 정의
         links_selector = (
             'a[href*="/bbs/qc_qsz/views/"], '
             'a[href*="/bbs/qc_bench/views/"]'
         )
 
-        found_links = []
-        tried = 0
-        for kw in keyword_candidates:
-            for build_url in url_templates:
-                q_url = build_url(kw)
-                tried += 1
-                print(f"      -> 퀘이사존 검색 (키워드: {kw}): {q_url}")
-                try:
-                    page.goto(q_url, wait_until='networkidle', timeout=30000)
-                except Exception:
-                    continue
+        # 우선 locator로 첫 링크만 가져오기 시도
+        first_link = None
+        try:
+            review_links = page.locator(links_selector)
+            if review_links.count() > 0:
+                href = review_links.nth(0).get_attribute('href')
+                first_link = href
+        except Exception:
+            pass
 
-                for _ in range(3):
-                    page.mouse.wheel(0, 1500)
-                    page.wait_for_timeout(600)
+        # 폴백: BeautifulSoup으로 첫 링크만 파싱
+        if not first_link:
+            html = page.content()
+            soup = BeautifulSoup(html, 'lxml')
+            a = soup.select_one('a[href*="/bbs/qc_qsz/views/"], a[href*="/bbs/qc_bench/views/"]')
+            if a and a.get('href'):
+                first_link = a.get('href')
 
-                try:
-                    page.wait_for_selector('body', timeout=5000)
-                except Exception:
-                    pass
-
-                # 우선 locator로 시도
-                review_links = page.locator(links_selector)
-                cnt = review_links.count()
-                if cnt == 0:
-                    # 폴백: BeautifulSoup으로 파싱
-                    html = page.content()
-                    soup = BeautifulSoup(html, 'lxml')
-                    soup_links = soup.select('a[href*="/bbs/qc_qsz/views/"], a[href*="/bbs/qc_bench/views/"]')
-                    if soup_links:
-                        found_links = [a.get('href') for a in soup_links if a.get('href')][:3]
-                        break
-                else:
-                    found_links = []
-                    for i in range(min(cnt, 3)):
-                        href = review_links.nth(i).get_attribute('href')
-                        if href:
-                            found_links.append(href)
-                    break
-            if found_links:
-                break
-
-        if not found_links:
-            print(f"      -> (정보) 퀘이사존에서 '{search_keyword}'에 대한 리뷰/벤치마크를 찾지 못했습니다. (Count 0)")
+        if not first_link:
+            print(f"      -> (정보) 퀘이사존에서 '{search_keyword}' 관련 리뷰를 찾지 못했습니다.")
             return
 
-        print(f"      -> {len(found_links)}개의 리뷰 링크 발견. 최대 3개 수집 시도...")
-        
-        count = 0
-        # 최대 3개의 리뷰만 수집
-        for i, href in enumerate(found_links[:3]):
-            review_url = href or ''
-            if review_url and not review_url.startswith('https://'):
-                review_url = f"https://quasarzone.com{review_url}"
+        review_url = first_link
+        if review_url and not review_url.startswith('https://'):
+            review_url = f"https://quasarzone.com{review_url}"
 
-            print(f"        -> [{i+1}/{min(len(found_links), 3)}] 리뷰 페이지 이동: {review_url}")
-            page.goto(review_url, wait_until='load', timeout=15000)
-            page.wait_for_timeout(1000) # 봇 탐지 방지 대기
+        print(f"        -> [1/1] 리뷰 페이지 이동: {review_url}")
+        page.goto(review_url, wait_until='load', timeout=15000)
+        page.wait_for_timeout(800) # 봇 탐지 방지 대기
 
-            content_element = page.locator('.view-content')
-            if not content_element.is_visible(timeout=5000):
-                print("        -> (오류) 리뷰 본문을 찾을 수 없습니다. (timeout)")
-                continue
-            
-            raw_text = content_element.inner_text()
-            
-            if len(raw_text) < 100:
-                print("        -> (건너뜀) 리뷰 본문이 너무 짧습니다. (100자 미만)")
-                continue
+        content_element = page.locator('.view-content')
+        if not content_element.is_visible(timeout=5000):
+            print("        -> (오류) 리뷰 본문을 찾을 수 없습니다. (timeout)")
+            return
 
-            # DB에 저장
-            review_params = {
-                "part_id": part_id,
-                "source": "퀘이사존",
-                "review_type": "전문가 리뷰",
-                "review_url": review_url,
-                "raw_text": raw_text
-            }
-            
-            conn.execute(sql_review, review_params)
-            count += 1
-            time.sleep(1) # 봇 차단 방지를 위한 1초 대기
+        raw_text = content_element.inner_text()
+        if len(raw_text) < 100:
+            print("        -> (건너뜀) 리뷰 본문이 너무 짧습니다. (100자 미만)")
+            return
 
-        if count > 0:
-            print(f"      -> 퀘이사존 리뷰 {count}건 저장 완료.")
+        # DB에 저장 (1건)
+        review_params = {
+            "part_id": part_id,
+            "source": "퀘이사존",
+            "review_url": review_url,
+            "raw_text": raw_text
+        }
+        conn.execute(sql_review, review_params)
+        print("      -> 퀘이사존 리뷰 1건 저장 완료.")
         
     except Exception as e:
         if "Target page, context or browser has been closed" in str(e):
