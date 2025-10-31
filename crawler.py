@@ -38,6 +38,33 @@ try:
     engine = create_engine(f'mysql+mysqlconnector://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}')
     with engine.connect() as conn:
         print("DB 연결 성공")
+        # 벤치마크 결과 테이블이 없으면 생성
+        create_bench_sql = text("""
+        CREATE TABLE IF NOT EXISTS benchmark_results (
+            id BIGINT AUTO_INCREMENT PRIMARY KEY,
+            part_id BIGINT NOT NULL,
+            source VARCHAR(64) NOT NULL,
+            test_name VARCHAR(128) NOT NULL,
+            test_version VARCHAR(32) NOT NULL DEFAULT '',
+            scenario VARCHAR(256) NOT NULL DEFAULT '',
+            metric_name VARCHAR(64) NOT NULL,
+            value DOUBLE NOT NULL,
+            unit VARCHAR(32) NULL,
+            review_url VARCHAR(512) NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            -- utf8mb4 인덱스 길이 제한(3072 bytes)을 피하기 위해 prefix index 적용
+            UNIQUE KEY uq_part_test (
+                part_id,
+                test_name(64),
+                test_version(16),
+                scenario(128),
+                metric_name(32),
+                review_url(191)
+            ),
+            KEY idx_part (part_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        """)
+        conn.execute(create_bench_sql)
 except Exception as e:
     print(f"DB 연결 실패: {e}")
     exit()
@@ -244,6 +271,73 @@ PARSER_MAP = {
     '파워': parse_power_specs,
 }
 
+def extract_benchmark_scores(raw_text):
+    """
+    리뷰 본문 텍스트에서 대표적인 벤치마크 점수(정수)를 단순 정규식으로 추출합니다.
+    - Cinebench R23/R24: Multi/Single
+    - 3DMark: Time Spy, Fire Strike, Speed Way, Port Royal
+    - CPU Profile: Max/1T/2T/4T/8T/16T
+    값이 다수일 경우 상위 몇 개만 반환합니다.
+    """
+    results = []
+
+    # 공통 숫자 파서
+    def to_int(num_str):
+        try:
+            return int(num_str.replace(',', '').strip())
+        except Exception:
+            return None
+
+    text = raw_text
+
+    # Cinebench R23/R24
+    for m in re.finditer(r"Cinebench\s*R(2[34])\s*(Multi|멀티|Single|싱글)?[^\n\r]*?([\d,]{3,})", text, re.I):
+        version = m.group(1)
+        scenario = m.group(2) or ''
+        value = to_int(m.group(3))
+        if value:
+            results.append({
+                "test_name": "Cinebench",
+                "test_version": f"R{version}",
+                "scenario": ("Multi" if scenario and scenario.lower().startswith('m') else ("Single" if scenario and scenario.lower().startswith('s') else "")),
+                "metric_name": "Score",
+                "value": value,
+                "unit": "pts"
+            })
+
+    # 3DMark 주요 항목
+    for test in ["Time Spy", "Fire Strike", "Speed Way", "Port Royal"]:
+        pattern = rf"3DMark[^\n\r]*{re.escape(test)}[^\n\r]*([\d,]{3,})"
+        for m in re.finditer(pattern, text, re.I):
+            value = to_int(m.group(1))
+            if value:
+                results.append({
+                    "test_name": f"3DMark {test}",
+                    "test_version": "",
+                    "scenario": "",
+                    "metric_name": "Score",
+                    "value": value,
+                    "unit": "pts"
+                })
+
+    # CPU Profile
+    for scenario_label in ["Max", "1T", "2T", "4T", "8T", "16T"]:
+        pattern = rf"CPU\s*Profile[^\n\r]*{scenario_label}[^\n\r]*([\d,]{3,})"
+        for m in re.finditer(pattern, text, re.I):
+            value = to_int(m.group(1))
+            if value:
+                results.append({
+                    "test_name": "CPU Profile",
+                    "test_version": "",
+                    "scenario": scenario_label,
+                    "metric_name": "Score",
+                    "value": value,
+                    "unit": "pts"
+                })
+
+    # 너무 많은 결과면 상위 10개만 반환
+    return results[:10]
+
 def scrape_category(page, category_name, query):
     # --- 1. (신규) parts 테이블 INSERT SQL ---
     # ON DUPLICATE KEY UPDATE: 이미 수집된 상품(link 기준)이면 가격, 리뷰 수 등만 업데이트합니다.
@@ -389,18 +483,18 @@ def scrape_category(page, category_name, query):
 
                         if part_id:
                             # --- 5. (신규) 2단계: `part_specs` 테이블에 세부 스펙 저장 ---
-                            
-                            # detailed_specs 딕셔너리를 JSON 문자열로 변환
-                            # ensure_ascii=False: 한글이 깨지지 않도록 함
+
+                            # 1. 다나와에서 기본 스펙 파싱 (기존)
+                            detailed_specs = parser_func(name, spec_string) if parser_func else {}
+
+                            # 2. DB에 저장 (기존)
                             specs_json = json.dumps(detailed_specs, ensure_ascii=False)
-                            
+
                             specs_params = {
                                 "part_id": part_id,
                                 "specs": specs_json
                             }
-                            
-                            # part_specs 테이블에 삽입/업데이트
-                            conn.execute(sql_specs, specs_params)
+                            conn.execute(sql_specs, specs_params) # part_spec 테이블에 저장
 
                         # --- (수정) 3단계: 퀘이사존 리뷰 수집 ---
                         if part_id: # part_id를 성공적으로 가져왔다면
@@ -577,6 +671,38 @@ def scrape_quasarzone_reviews(page, conn, sql_review, part_id, part_name, catego
         }
         conn.execute(sql_review, review_params)
         print("      -> 퀘이사존 리뷰 1건 저장 완료.")
+
+        # (신규) 리뷰 본문에서 대표 벤치마크 점수 추출 후 저장
+        benchmarks = extract_benchmark_scores(raw_text)
+        if benchmarks:
+            sql_bench = text("""
+                INSERT INTO benchmark_results (
+                    part_id, source, test_name, test_version, scenario,
+                    metric_name, value, unit, review_url
+                ) VALUES (
+                    :part_id, :source, :test_name, :test_version, :scenario,
+                    :metric_name, :value, :unit, :review_url
+                )
+                ON DUPLICATE KEY UPDATE
+                    value = VALUES(value),
+                    created_at = CURRENT_TIMESTAMP
+            """)
+            for b in benchmarks:
+                params = {
+                    "part_id": part_id,
+                    "source": "퀘이사존",
+                    "test_name": b.get("test_name", ""),
+                    "test_version": b.get("test_version", ""),
+                    "scenario": b.get("scenario", ""),
+                    "metric_name": b.get("metric_name", "Score"),
+                    "value": b.get("value", 0),
+                    "unit": b.get("unit", "pts"),
+                    "review_url": review_url
+                }
+                try:
+                    conn.execute(sql_bench, params)
+                except Exception:
+                    continue
         
     except Exception as e:
         if "Target page, context or browser has been closed" in str(e):
@@ -585,6 +711,120 @@ def scrape_quasarzone_reviews(page, conn, sql_review, part_id, part_name, catego
         
         print(f"      -> (경고) 퀘이사존 리뷰 수집 중 오류 발생 (무시함): {type(e).__name__} - {str(e)[:100]}...")
         pass
+
+        # --- (신규) CPU 벤치마크 스크래핑 함수 (플레이스홀더) ---
+    def scrape_cpu_benchmarks(page, part_name, detailed_specs_dict):
+        """
+        (TODO) 벤치마크 사이트(Cinebench, 3DMark 점수 등)에서 
+        CPU 성능 점수를 스크랩하여 detailed_specs_dict에 추가합니다.
+        """
+        try:
+            keyword = get_search_keyword(part_name, "CPU", detailed_specs_dict)
+            if not keyword:
+                return
+
+            print(f"      -> (TODO) CPU 벤치마크 스크래핑 시도 (키워드: {keyword})")
+            
+            # --- (작업 필요) ---
+            # 여기에 Guru3D, TechPowerUp CPU DB 등 신뢰할 수 있는 텍스트 기반
+            # 벤치마크 사이트를 크롤링하는 로직을 추가해야 합니다.
+            
+            # (예시: 나중에 7500F의 점수를 14500점으로 찾았다고 가정)
+            # if "7500F" in keyword:
+            #     detailed_specs_dict['cinebench_r23_multi'] = 14500
+            #     detailed_specs_dict['cinebench_r23_single'] = 1800
+            #     print(f"      -> (가상) Cinebench 점수 저장 완료.")
+                
+        except Exception as e:
+            if "Target page" in str(e): raise e
+            print(f"      -> (경고) CPU 벤치마크 수집 중 오류: {e}")
+            pass # 실패해도 크롤링 중단 없음
+
+            # --- (신규) GPU 벤치마크/세부스펙 스크래핑 함수 (TechPowerUp) ---
+    def scrape_gpu_benchmarks_and_specs(page, part_name, detailed_specs_dict):
+        """
+        TechPowerUp에서 GPU 세부 스펙(코어, 메모리 버스 등)과 
+        3DMark Time Spy 점수를 스크랩하여 detailed_specs_dict에 추가합니다.
+        """
+        try:
+            keyword = get_search_keyword(part_name, "그래픽카드", detailed_specs_dict)
+            if not keyword:
+                print(f"      -> (정보) GPU 키워드 추출 불가, 건너뜀.")
+                return
+
+            print(f"      -> TechPowerUp GPU 스펙/벤치 스크래핑 시도 (키워드: {keyword})")
+            
+            # 1. TechPowerUp 검색 (ajax 검색 페이지로 직접 이동)
+            search_url = f"https://www.techpowerup.com/gpu-specs/?ajaxsrch={keyword.replace(' ', '+')}"
+            page.goto(search_url, wait_until='networkidle', timeout=15000)
+            
+            # 2. 검색 결과의 첫 번째 링크 찾기
+            first_result_link = page.locator('.search-results ul li a').first
+            if not first_result_link.is_visible(timeout=5000):
+                print(f"      -> (정보) TechPowerUp에서 '{keyword}' 검색 결과 없음.")
+                return
+
+            spec_page_url = first_result_link.get_attribute('href')
+            if not spec_page_url.startswith('https://'):
+                spec_page_url = f"https://www.techpowerup.com{spec_page_url}"
+
+            print(f"      -> TechPowerUp 스펙 페이지 이동: {spec_page_url}")
+            page.goto(spec_page_url, wait_until='load', timeout=15000)
+            page.wait_for_timeout(500) # 로딩 대기
+
+            # 3. 스펙 테이블 스크래핑
+            spec_rows = page.locator('dl.spec-row')
+            
+            # (요청하신 핵심 스펙 + 3DMark 점수)
+            spec_map = {
+                "Cores": "techpowerup_cores",
+                "TMUs": "techpowerup_tmus",
+                "ROPs": "techpowerup_rops",
+                "Memory Bus": "techpowerup_memory_bus",
+                "GPU Clock": "techpowerup_gpu_clock_mhz",
+                "Memory Clock": "techpowerup_memory_clock_mhz",
+                "3DMark Time Spy Graphics": "3dmark_time_spy_graphics" # 3DMark 점수
+            }
+            
+            found_specs_count = 0
+            for i in range(spec_rows.count()):
+                row = spec_rows.nth(i)
+                try:
+                    label = row.locator('dt').inner_text().strip()
+                    value = row.locator('dd').inner_text().strip()
+
+                    if label in spec_map:
+                        # 숫자만 추출 (예: "1920 MHz" -> 1920, "192 bit" -> "192 bit")
+                        value_numeric = re.search(r'([\d,\.]+)', value)
+                        
+                        if value_numeric:
+                            clean_value = value_numeric.group(1).replace(',', '')
+                            # 정수형 변환 시도, 실패 시 float 변환 시도
+                            try:
+                                final_value = int(clean_value)
+                            except ValueError:
+                                try:
+                                    final_value = float(clean_value)
+                                except ValueError:
+                                    final_value = value # 숫자로 변환 실패 시 원본 저장
+                        else:
+                            final_value = value # 숫자가 없는 값(예: GDDR6X)은 원본 저장
+
+                        detailed_specs_dict[spec_map[label]] = final_value
+                        found_specs_count += 1
+                        
+                except Exception:
+                    continue # 한두 개 실패해도 무시
+            
+            if found_specs_count > 0:
+                print(f"      -> TechPowerUp 스펙 {found_specs_count}건 저장 완료.")
+            else:
+                print(f"      -> (경고) TechPowerUp에서 세부 스펙을 찾지 못했습니다.")
+                
+        except Exception as e:
+            if "Target page" in str(e): raise e # 크롤러 종료 오류
+            print(f"      -> (경고) TechPowerUp 스펙 수집 중 오류: {e}")
+            pass # 실패해도 크롤링 중단 없음
 
 if __name__ == "__main__":
     run_crawler()

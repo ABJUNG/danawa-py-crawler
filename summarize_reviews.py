@@ -8,8 +8,8 @@ DB_USER = 'root'
 DB_PASSWORD = '1234'
 # (주의!) 이 스크립트를 Docker 밖(로컬)에서 실행한다면 DB_HOST를 'db'가 아닌 'localhost' (또는 3307 포트)로 접속해야 합니다.
 # (만약 이 스크립트도 Docker로 실행한다면 'db'가 맞습니다.)
-DB_HOST = 'localhost' # 
-DB_PORT = '3307' # 1단계에서 DB 포트를 3307로 변경했었습니다.
+DB_HOST = 'db' # 
+DB_PORT = '3306' # 1단계에서 DB 포트를 3307로 변경했었습니다.
 DB_NAME = 'danawa'
 
 # --- 2. Gemini API 키 설정 ---
@@ -23,7 +23,8 @@ genai.configure(api_key=GOOGLE_API_KEY)
 # --- 3. AI 모델 및 프롬프트 설정 ---
 generation_config = {"temperature": 0.5}
 model = genai.GenerativeModel(
-    'gemini-1.5-flash', # (또는 gemini-pro)
+
+    'gemini-2.5-flash', # (또는 gemini-pro)
     generation_config=generation_config
 )
 
