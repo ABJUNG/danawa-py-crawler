@@ -48,11 +48,12 @@ services:
   # Python 크롤러 서비스 (필요 시 실행)
   crawler:
     build:
-      context: . # Dockerfile이 있는 경로 (프로젝트 루트)
+      context: .
       dockerfile: Dockerfile.crawler
-    container_name: danawa-crawler
+    env_file: # 👈 이 부분을 추가
+      - ./.env  # 👈 .env 파일의 모든 변수를 이 컨테이너로 주입
     depends_on:
-      - db # DB 서비스가 먼저 실행되도록 설정
+      - db
     volumes:
       - .:/app # 크롤러 스크립트 마운트
     working_dir: /app
