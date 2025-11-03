@@ -29,6 +29,8 @@ const parseSpecs = (specsJson, filterLabels) => {
 function PartDetailModal({ part, onClose, filterLabels }) {
     // part.specs (JSON 문자열)를 상세 스펙 목록(배열)으로 변환
     const detailedSpecs = parseSpecs(part.specs, filterLabels);
+    // --- 👇 [신규] 벤치마크 데이터가 있는지 확인 ---
+    const hasBenchmarks = part.benchmarks && part.benchmarks.length > 0;
 
     return (
         <div className="modal-backdrop" onClick={onClose}>
@@ -63,6 +65,29 @@ function PartDetailModal({ part, onClose, filterLabels }) {
                                 )}
                             </ul>
                         </div>
+
+                                {/* --- 👇 [신규] 벤치마크 섹션 추가 --- */}
+                                {/* 벤치마크 데이터가 있을 때만 이 섹션을 보여줍니다. */}
+                                {hasBenchmarks && (
+                                    <div className="modal-section">
+                                        <h4>벤치마크 정보 (퀘이사존)</h4>
+                                        <ul className="spec-list"> {/* 상세 스펙과 동일한 CSS 재사용 */}
+                                            {part.benchmarks.map((bench, index) => (
+                                                <li key={index} className="spec-item">
+                                                    <strong>
+                                                        {/* 예: Cinebench R23 (Multi) */}
+                                                        {bench.testName} {bench.testVersion} 
+                                                        {bench.scenario ? ` (${bench.scenario})` : ''}
+                                                    </strong> 
+                                                    <span>
+                                                        {/* 예: 14500 pts */}
+                                                        {bench.value.toLocaleString()} {bench.unit}
+                                                    </span>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    </div>
+                                )}
 
                         {/* 2. 퀘이사존 AI 요약 섹션 */}
                         <div className="modal-section">

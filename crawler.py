@@ -457,6 +457,9 @@ def scrape_category(page, category_name, query):
                     manufacturer = detailed_specs.get("manufacturer")
                     if not manufacturer and name:
                         manufacturer = name.split()[0]
+
+                    # --- 👇 [수정 1] "시작" 로그 추가 ---
+                    print(f"\n  [처리 시작] {name}") # 한 줄 띄우고 시작
                     
                     # --- 4. (신규) 1단계: `parts` 테이블에 공통 정보 저장 ---
                     parts_params = {
@@ -503,7 +506,7 @@ def scrape_category(page, category_name, query):
                             review_exists = review_exists_result.scalar() == 1 # (True 또는 False)
 
                             if not review_exists:
-                                print(f"    -> 퀘이사존 리뷰 없음, 수집 시도...")
+                                print(f"      -> 퀘이사존 리뷰 없음, 수집 시도...") # 4칸 -> 6칸
                                 # (신규) category_name과 detailed_specs를 인자로 추가 전달
                                 scrape_quasarzone_reviews(page, conn, sql_review, part_id, name, category_name, detailed_specs)
                             # else:
@@ -511,11 +514,14 @@ def scrape_category(page, category_name, query):
                                 # print(f"    -> (건너뜀) 이미 퀘이사존 리뷰가 수집된 상품입니다.")
 
                         trans.commit() # 트랜잭션 완료
-                        print(f"  ✅ {name} (댓글: {review_count})")
+                        # --- 👇 [수정 3] "완료" 로그 수정 및 들여쓰기 추가 ---
+                        print(f"    [처리 완료] {name} (댓글: {review_count}) 저장 성공.") # '✅' 대신 '완료' 사용, 4칸 들여쓰기
                         
                     except Exception as e:
                         trans.rollback() # 오류 발생 시 롤백
-                        print(f"  ❌ {name} 저장 중 오류 발생: {e}")
+
+                        # --- 👇 [수정 4] "오류" 로그 수정 및 들여쓰기 추가 ---
+                        print(f"    [처리 오류] {name} 저장 중 오류 발생: {e}") # '❌' 대신 '오류' 사용, 4칸 들여쓰기
 
             except Exception as e:
                 print(f"--- {page_num}페이지 처리 중 오류 발생: {e}. 다음 페이지로 넘어갑니다. ---")
@@ -532,9 +538,15 @@ def run_crawler():
         stealth_sync(page)
         page.set_extra_http_headers({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"})
 
+        try:
+            print("--- (봇 우회) 퀘이사존 메인 리뷰 페이지 1회 방문 (세션 획득) ---")
+            page.goto("https://quasarzone.com/bbs/qc_qsz", wait_until='networkidle', timeout=20000)
+            page.wait_for_timeout(1000) # 1초 대기
+            print("--- 퀘이사존 세션 획득 완료 ---")
+        except Exception as e:
+            print(f"--- (경고) 퀘이사존 메인 페이지 방문 실패 (무시하고 계속): {e}")
+
         for category_name, query in CATEGORIES.items():
-            # CRAWL_PAGES 변수를 사용하도록 scrape_category 함수를 수정했으므로
-            # 이 부분은 변경할 필요 없이 그대로 둡니다.
             scrape_category(page, category_name, query)
         browser.close()
         print("\n모든 카테고리 데이터 수집을 완료했습니다.")
@@ -582,35 +594,35 @@ def get_search_keyword(part_name, category_name, detailed_specs):
 # --- (수정) 퀘이사존 리뷰 크롤링 함수 (봇 우회 강화) ---
 def scrape_quasarzone_reviews(page, conn, sql_review, part_id, part_name, category_name, detailed_specs):
     """
-    (봇 우회 강화) 메인 리뷰 페이지를 경유한 후,
-    핵심 키워드로 퀘이사존 통합검색을 수행하고, 결과가 나올 때까지 대기한 후
-    '리뷰/벤치마크' 게시판의 글을 수집하여 DB에 저장합니다.
+    (봇 우회 강화) ... (중략)
     """
     try:
         search_keyword = get_search_keyword(part_name, category_name, detailed_specs)
         if not search_keyword:
-            print(f"      -> (정보) '{part_name}'에 대한 핵심 키워드 추출 불가, 건너뜀.")
+            print(f"        -> (정보) '{part_name}'에 대한 핵심 키워드 추출 불가, 건너뜀.") # 6칸 -> 8칸
             return
 
-        # --- (신규) 1. 봇 우회를 위해 메인 리뷰 페이지를 먼저 방문 (쿠키/세션 획득) ---
-        try:
-            print(f"      -> (봇 우회) 퀘이사존 메인 리뷰 페이지 방문 시도...")
-            page.goto("https://quasarzone.com/bbs/qc_qsz", wait_until='networkidle', timeout=10000)
-            page.wait_for_timeout(1000) # 1초 대기
-        except Exception as e:
-            print(f"      -> (경고) 메인 페이지 방문 실패 (무시하고 계속): {e}")
-        # --- (신규 1. 끝) ---
+        # --- 👇 [수정] 이 'try...except' 블록 전체를 삭제하거나 주석 처리합니다. ---
+        # try:
+        #     print(f"      -> (봇 우회) 퀘이사존 메인 리뷰 페이지 방문 시도...")
+        #     page.goto("https://quasarzone.com/bbs/qc_qsz", wait_until='networkidle', timeout=10000)
+        #     page.wait_for_timeout(1000) # 1초 대기
+        # except Exception as e:
+        #     print(f"      -> (경고) 메인 페이지 방문 실패 (무시하고 계속): {e}")
+        # --- [수정] 여기까지 ---
 
         # 단일 검색 실행: 공식기사(칼럼/리뷰) 그룹 제목검색 1회만 수행
         q_url = (
             f"https://quasarzone.com/groupSearches?group_id=columns"
             f"&keyword={quote_plus(search_keyword)}&kind=subject"
         )
-        print(f"      -> 퀘이사존 공식기사 검색 (키워드: {search_keyword}): {q_url}")
+
+        print(f"        -> 퀘이사존 공식기사 검색 (키워드: {search_keyword}): {q_url}") # 6칸 -> 8칸
+        # (중복된 print문 한 줄 삭제)
         try:
             page.goto(q_url, wait_until='networkidle', timeout=30000)
         except Exception as e:
-            print(f"      -> (오류) 검색 페이지 로딩 실패: {e}")
+            print(f"        -> (오류) 검색 페이지 로딩 실패: {e}") # 6칸 -> 8칸
             return
 
         # 가벼운 스크롤로 동적 로딩 유도
@@ -622,34 +634,42 @@ def scrape_quasarzone_reviews(page, conn, sql_review, part_id, part_name, catego
             'a[href*="/bbs/qc_bench/views/"]'
         )
 
-        # 우선 locator로 첫 링크만 가져오기 시도
-        first_link = None
+        links_selector = (
+            'a[href*="/bbs/qc_qsz/views/"], '
+            'a[href*="/bbs/qc_bench/views/"]'
+        )
+
+        found_link = None
         try:
-            review_links = page.locator(links_selector)
-            if review_links.count() > 0:
-                href = review_links.nth(0).get_attribute('href')
-                first_link = href
-        except Exception:
+            # 1. 페이지에 있는 모든 리뷰 링크를 가져옵니다.
+            review_links = page.locator(links_selector).all() 
+            
+            # 2. 링크를 순회합니다.
+            for link in review_links:
+                title = (link.inner_text() or "").lower()
+                keyword_lower = search_keyword.lower()
+                
+                # 3. 링크의 텍스트(제목)에 키워드가 포함되어 있는지 확인합니다.
+                if keyword_lower in title:
+                    href = link.get_attribute('href')
+                    if href:
+                        found_link = href
+                        break # 4. 일치하는 첫 번째 링크를 찾으면 중단
+            
+        except Exception as e:
+            print(f"      -> (경고) 링크 목록을 파싱하는 중 오류: {e}")
             pass
 
-        # 폴백: BeautifulSoup으로 첫 링크만 파싱
-        if not first_link:
-            html = page.content()
-            soup = BeautifulSoup(html, 'lxml')
-            a = soup.select_one('a[href*="/bbs/qc_qsz/views/"], a[href*="/bbs/qc_bench/views/"]')
-            if a and a.get('href'):
-                first_link = a.get('href')
-
-        if not first_link:
+        if not found_link: # 5. 일치하는 링크를 못 찾았다면
             print(f"      -> (정보) 퀘이사존에서 '{search_keyword}' 관련 리뷰를 찾지 못했습니다.")
             return
 
-        review_url = first_link
+        review_url = found_link # 6. 일치하는 링크로 리뷰 수집 시작
         if review_url and not review_url.startswith('https://'):
             review_url = f"https://quasarzone.com{review_url}"
 
         print(f"        -> [1/1] 리뷰 페이지 이동: {review_url}")
-        page.goto(review_url, wait_until='load', timeout=15000)
+        page.goto(review_url, wait_until='domcontentloaded', timeout=15000)
         page.wait_for_timeout(800) # 봇 탐지 방지 대기
 
         content_element = page.locator('.view-content')

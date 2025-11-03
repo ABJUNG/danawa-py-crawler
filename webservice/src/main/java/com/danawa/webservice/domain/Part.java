@@ -52,6 +52,10 @@ public class Part extends BaseTimeEntity {
     @OneToMany(mappedBy = "part", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
     private List<CommunityReview> communityReviews = new ArrayList<>();
 
+    // --- 👇 [신규] 벤치마크 결과를 담을 리스트 추가 ---
+    @OneToMany(mappedBy = "part", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    private List<BenchmarkResult> benchmarkResults = new ArrayList<>();
+
     // --- 여기부터 ---
     // codename, cpuSeries, cpuClass, socket, cores, threads, ... 등
     // ... 모든 세부 스펙 필드를 전부 삭제합니다 ...

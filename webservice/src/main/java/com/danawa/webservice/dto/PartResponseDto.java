@@ -1,8 +1,14 @@
-package com.danawa.webservice.dto; // 1. dto 패키지
+package com.danawa.webservice.dto;
 
 import com.danawa.webservice.domain.Part;
 import com.danawa.webservice.domain.CommunityReview;
+import com.danawa.webservice.domain.BenchmarkResult; // 👈 1. import 추가
 import lombok.Getter;
+
+import java.util.List; // 👈 2. import 추가
+import java.util.stream.Collectors; // 👈 3. import 추가
+import java.util.ArrayList; // 👈 4. import 추가
+
 
 @Getter
 public class PartResponseDto {
@@ -23,6 +29,9 @@ public class PartResponseDto {
 
     // --- Tier 3: 'community_reviews' 테이블의 AI 요약 ---
     private String aiSummary; // AI가 요약한 퀘이사존 리뷰
+
+    // --- 👇 5. [신규] 벤치마크 리스트 필드 추가 ---
+    private List<BenchmarkResultDto> benchmarks;
 
     /**
      * Entity(Part)를 DTO(PartResponseDto)로 변환하는 생성자
@@ -56,6 +65,16 @@ public class PartResponseDto {
                     .filter(summary -> summary != null && !summary.isBlank()) // NULL이나 빈 요약은 제외
                     .findFirst() // 가장 첫 번째 요약본을
                     .orElse(null); // 없으면 NULL
+        }
+
+                // --- 👇 6. [신규] 벤치마크 데이터 DTO로 변환 ---
+        // (N+1 문제 경고: 기존 코드와 동일하게 Lazy Loading 방식 사용)
+        if (entity.getBenchmarkResults() != null && !entity.getBenchmarkResults().isEmpty()) {
+            this.benchmarks = entity.getBenchmarkResults().stream()
+                    .map(BenchmarkResultDto::new)
+                    .collect(Collectors.toList());
+        } else {
+            this.benchmarks = new ArrayList<>(); // 빈 리스트 보장
         }
     }
 }
