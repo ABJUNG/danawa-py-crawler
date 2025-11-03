@@ -21,6 +21,8 @@ services:
     container_name: danawa-backend
     depends_on:
       - db # DB 서비스가 먼저 실행되도록 설정
+    env_file: # 👈 이 부분을 추가
+    - ./.env  # 👈 .env 파일을 읽어 GOOGLE_API_KEY를 주입
     ports:
       - "8080:8080"
     environment:
