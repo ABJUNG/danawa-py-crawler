@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import './App.css';
 import ComparisonModal from './ComparisonModal'; // ComparisonModal import
+import PartDetailModal from './PartDetailModal'; // 👈 1. 이 줄을 추가
 
 const CATEGORIES = ['CPU', '쿨러', '메인보드', 'RAM', '그래픽카드', 'SSD', 'HDD', '파워', '케이스'];
 const ITEMS_PER_PAGE = 21;
@@ -84,19 +85,104 @@ const FILTER_ORDER_MAP = {
   파워: ['manufacturer', 'productType', 'ratedOutput', 'eightyPlusCert', 'etaCert', 'cableConnection', 'pcie16pin']
 };
 
+// --- [수정됨] JSON specs 필드를 파싱하여 스펙 문자열을 생성하는 함수 ---
 const generateSpecString = (part) => {
   let specs = [];
+  let parsedSpecs = {}; // 1. 빈 스펙 객체 생성
+
+  // 2. part.specs (JSON 문자열)가 존재하면 파싱하여 parsedSpecs 객체에 저장
+  try {
+    if (part.specs) {
+      parsedSpecs = JSON.parse(part.specs);
+    }
+  } catch (e) {
+    console.error("Failed to parse specs JSON:", e, part.specs);
+  }
+
+  // 3. part.cores 대신 parsedSpecs.cores (snake_case)에서 데이터를 찾도록 수정
+  // (Python 크롤러가 snake_case로 저장했으므로 snake_case 키를 사용)
   switch (part.category) {
-    case 'CPU': specs = [part.manufacturer, part.socket, part.cores, part.threads, part.cpuSeries, part.codename]; break;
-    case '쿨러': specs = [part.manufacturer, part.coolingMethod, part.airCoolingForm, part.fanSize, part.radiatorLength]; break;
-    case '메인보드': specs = [part.manufacturer, part.socket, part.chipset, part.formFactor, part.memorySpec]; break;
-    case 'RAM': specs = [part.manufacturer, part.productClass, part.capacity, part.clockSpeed, part.ramTiming]; break;
-    case '그래픽카드': specs = [part.manufacturer, (part.nvidiaChipset || part.amdChipset || part.intelChipset), part.gpuMemoryCapacity, part.gpuLength]; break;
-    case 'SSD': specs = [part.manufacturer, part.formFactor, part.ssdInterface, part.capacity, part.sequentialRead]; break;
-    case 'HDD': specs = [part.manufacturer, part.diskCapacity, part.rotationSpeed, part.bufferCapacity]; break;
-    case '케이스': specs = [part.manufacturer, part.caseSize, part.supportedBoard, part.cpuCoolerHeightLimit, part.vgaLength]; break;
-    case '파워': specs = [part.manufacturer, part.ratedOutput, part.eightyPlusCert, part.cableConnection]; break;
-    default: return '';
+    case 'CPU':
+      specs = [
+        parsedSpecs.manufacturer,
+        parsedSpecs.socket,
+        parsedSpecs.cores,
+        parsedSpecs.threads,
+        parsedSpecs.cpu_series, 
+        parsedSpecs.codename
+      ];
+      break;
+    case '쿨러':
+      specs = [
+        parsedSpecs.manufacturer,
+        parsedSpecs.cooling_method, 
+        parsedSpecs.air_cooling_form, 
+        parsedSpecs.fan_size, 
+        parsedSpecs.radiator_length 
+      ];
+      break;
+    case '메인보드':
+      specs = [
+        parsedSpecs.manufacturer,
+        parsedSpecs.socket,
+        parsedSpecs.chipset,
+        parsedSpecs.form_factor, 
+        parsedSpecs.memory_spec 
+      ];
+      break;
+    case 'RAM':
+      specs = [
+        parsedSpecs.manufacturer,
+        parsedSpecs.product_class, 
+        parsedSpecs.capacity,
+        parsedSpecs.clock_speed, 
+        parsedSpecs.ram_timing 
+      ];
+      break;
+    case '그래픽카드':
+      specs = [
+        parsedSpecs.manufacturer,
+        (parsedSpecs.nvidia_chipset || parsedSpecs.amd_chipset || parsedSpecs.intel_chipset), 
+        parsedSpecs.gpu_memory_capacity, 
+        parsedSpecs.gpu_length 
+      ];
+      break;
+    case 'SSD':
+      specs = [
+        parsedSpecs.manufacturer,
+        parsedSpecs.form_factor, 
+        parsedSpecs.ssd_interface, 
+        parsedSpecs.capacity,
+        parsedSpecs.sequential_read 
+      ];
+      break;
+    case 'HDD':
+      specs = [
+        parsedSpecs.manufacturer,
+        parsedSpecs.disk_capacity, 
+        parsedSpecs.rotation_speed, 
+        parsedSpecs.buffer_capacity 
+      ];
+      break;
+    case '케이스':
+      specs = [
+        parsedSpecs.manufacturer,
+        parsedSpecs.case_size, 
+        parsedSpecs.supported_board, 
+        parsedSpecs.cpu_cooler_height_limit, 
+        parsedSpecs.vga_length 
+      ];
+      break;
+    case '파워':
+      specs = [
+        parsedSpecs.manufacturer,
+        parsedSpecs.rated_output, 
+        parsedSpecs.eighty_plus_cert, 
+        parsedSpecs.cable_connection 
+      ];
+      break;
+    default:
+      return '';
   }
   return specs.filter(Boolean).join(' / ');
 };
@@ -116,6 +202,8 @@ function App() {
   const [sortOption, setSortOption] = useState('reviewCount,desc');
   const [comparisonList, setComparisonList] = useState([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+  const [selectedPart, setSelectedPart] = useState(null);
   
   // --- [추가] 아코디언 UI를 위한 상태 관리 ---
   const [openFilter, setOpenFilter] = useState('manufacturer'); 
@@ -171,6 +259,16 @@ function App() {
   // (이하 데이터 로딩 및 필터링 관련 함수들은 기존과 동일)
   const handleRemoveFromCompare = (partId) => {
     setComparisonList(prevList => prevList.filter(p => p.id !== partId));
+  };
+
+  const handleOpenDetailModal = (part) => {
+    setSelectedPart(part);
+    setIsDetailModalOpen(true);
+  };
+
+  const handleCloseDetailModal = () => {
+    setIsDetailModalOpen(false);
+    setSelectedPart(null); // 선택된 부품 정보 초기화
   };
 
   const fetchParts = useCallback(async (category, filters, keyword, page, sort) => {
@@ -498,7 +596,7 @@ function App() {
                   {parts.length > 0 ? parts.map(part => {
                     const specString = generateSpecString(part);
                     return (
-                      <a key={part.id} href={part.link} target="_blank" rel="noopener noreferrer" className="card-link">
+                      <div key={part.id} className="card-link" onClick={() => handleOpenDetailModal(part)}> 
                         <div className="part-card">
                           <img src={part.imgSrc || 'https://img.danawa.com/new/noData/img/noImg_160.gif'} alt={part.name} className="part-image" />
                           <div className="part-info">
@@ -517,7 +615,7 @@ function App() {
                             </button>
                           </div>
                         </div>
-                      </a>
+                      </div>
                     );
                   }) : <div className="no-results">검색 결과가 없습니다.</div>}
                 </div>
@@ -572,6 +670,13 @@ function App() {
 
       {isModalOpen && (
         <ComparisonModal products={comparisonList} onClose={() => setIsModalOpen(false)} filterLabels={FILTER_LABELS} filterOrderMap={FILTER_ORDER_MAP}/>
+      )}
+      {isDetailModalOpen && selectedPart && (
+          <PartDetailModal 
+              part={selectedPart} 
+              onClose={handleCloseDetailModal}
+              filterLabels={FILTER_LABELS} /* 👈 스펙 라벨링을 위해 전달 */
+          />
       )}
     </div>
   );
