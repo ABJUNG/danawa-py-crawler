@@ -4,7 +4,7 @@
     left: 0;
     width: 100%;
     height: 100%;
-    background-color: rgba(0, 0, 0, 0.7);
+    background-color: rgba(0, 0, 0, 1);
     display: flex;
     justify-content: center;
     align-items: center;
@@ -13,7 +13,7 @@
 }
 
 .modal-content {
-    background: var(--background-color-card); /* App.css의 변수 사용 */
+    background: var(--container-bg-color);
     color: var(--text-color); /* App.css의 변수 사용 */
     padding: 2.5rem 2rem 2rem 2rem;
     border-radius: 12px;
