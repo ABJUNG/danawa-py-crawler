@@ -70,7 +70,7 @@ function PartDetailModal({ part, onClose, filterLabels }) {
                                 {/* 벤치마크 데이터가 있을 때만 이 섹션을 보여줍니다. */}
                                 {hasBenchmarks && (
                                     <div className="modal-section">
-                                        <h4>벤치마크 정보 (퀘이사존)</h4>
+                                        <h4>벤치마크 정보</h4>
                                         <ul className="spec-list"> {/* 상세 스펙과 동일한 CSS 재사용 */}
                                             {part.benchmarks.map((bench, index) => (
                                                 <li key={index} className="spec-item">

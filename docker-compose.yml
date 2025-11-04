@@ -44,7 +44,7 @@ services:
     environment:
       - NODE_ENV=development # 개발 모드 설정
       - CHOKIDAR_USEPOLLING=true # 파일 변경 감지 방식 변경 (Docker 환경)
-      - REACT_APP_API_URL=http://backend:8080 # 백엔드 API URL 설정
+      - REACT_APP_API_URL=http://localhost:8080 # 백엔드 API URL 설정 (브라우저에서 접근 가능한 호스트 포트 사용)
     # Dockerfile의 CMD ["npm", "start"]를 사용하여 애플리케이션 실행
 
   # Python 크롤러 서비스 (필요 시 실행)

@@ -8,7 +8,7 @@ const CATEGORIES = ['CPU', '쿨러', '메인보드', 'RAM', '그래픽카드', '
 const ITEMS_PER_PAGE = 21;
 
 // 백엔드 API 기본 URL 설정 (Docker 환경에서는 backend:8080, 로컬에서는 localhost:8080)
-const API_BASE_URL = 'http://localhost:8080';
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8080';
 
 // (FILTER_LABELS, FILTER_ORDER_MAP, generateSpecString 함수는 기존과 동일)
 const FILTER_LABELS = {
@@ -20,6 +20,13 @@ const FILTER_LABELS = {
   cores: '코어 수',
   threads: '스레드 수',
   integrated_graphics: '내장그래픽 탑재 여부',
+  // --- 👇 [신규] 벤치마크 라벨 추가 ---
+  bench_cinebench_r23_multi: 'Cinebench R23 (Multi)',
+  bench_cinebench_r23_single: 'Cinebench R23 (Single)',
+  bench_geekbench_6_multi: 'Geekbench 6 (Multi)',
+  bench_geekbench_6_single: 'Geekbench 6 (Single)',
+  bench_blender_median: 'Blender (Median)',
+  bench_3dmark_timespy_cpu: '3DMark Time Spy (CPU)',
   product_type: '제품 분류',
   cooling_method: '냉각 방식',
   air_cooling_form: '공랭 형태',

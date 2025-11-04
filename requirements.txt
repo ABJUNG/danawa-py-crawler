@@ -5,3 +5,4 @@ mysql-connector-python
 lxml # BeautifulSoup가 lxml을 사용하므로 추가
 playwright-stealth==1.0.6
 google-generativeai
+requests # HTTP 요청을 위한 라이브러리 (Blender Open Data API 사용)

@@ -22,6 +22,12 @@ public class CommunityReview extends BaseTimeEntity { // 1.1에서 만든 BaseTi
     @JoinColumn(name = "part_id") // DB에는 part_id 라는 FK 컬럼이 생성됨
     private Part part;
 
+    @Column(length = 16)
+    private String partType; // 부품 타입 (예: "CPU", "GPU")
+
+    @Column(length = 64)
+    private String cpuModel; // CPU 모델명 (예: "7500F", "7800X3D")
+
     @Column(nullable = false)
     private String source; // 출처 (예: "퀘이사존")
 
