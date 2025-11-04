@@ -351,8 +351,13 @@ h1 {
     gap: 1.5rem;
 }
 
-.card-link { text-decoration: none; color: inherit; }
-
+.card-link {
+  text-decoration: none;
+  color: inherit;
+  display: block;
+  height: 100%;
+  cursor: pointer; /* 👈 이 줄을 추가 */
+}
 .part-card {
     background-color: var(--container-bg-color);
     border-radius: 8px;

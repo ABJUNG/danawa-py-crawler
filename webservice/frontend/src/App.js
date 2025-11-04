@@ -2,98 +2,194 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import './App.css';
 import ComparisonModal from './ComparisonModal'; // ComparisonModal import
+import PartDetailModal from './PartDetailModal'; // 👈 1. 이 줄을 추가
 
 const CATEGORIES = ['CPU', '쿨러', '메인보드', 'RAM', '그래픽카드', 'SSD', 'HDD', '파워', '케이스'];
 const ITEMS_PER_PAGE = 21;
+
+// 백엔드 API 기본 URL 설정 (Docker 환경에서는 backend:8080, 로컬에서는 localhost:8080)
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8080';
 
 // (FILTER_LABELS, FILTER_ORDER_MAP, generateSpecString 함수는 기존과 동일)
 const FILTER_LABELS = {
   manufacturer: '제조사',
   codename: '코드네임',
-  cpuSeries: 'CPU 시리즈',
-  cpuClass: 'CPU 종류',
+  cpu_series: 'CPU 시리즈',
+  cpu_class: 'CPU 종류',
   socket: '소켓 구분',
   cores: '코어 수',
   threads: '스레드 수',
-  integratedGraphics: '내장그래픽 탑재 여부',
-  productType: '제품 분류',
-  coolingMethod: '냉각 방식',
-  airCoolingForm: '공랭 형태',
-  coolerHeight: '쿨러 높이',
-  radiatorLength: '라디에이터',
-  fanSize: '팬 크기',
-  fanConnector: '팬 커넥터',
-  deviceType: '사용 장치',
-  productClass: '제품 분류',
+  integrated_graphics: '내장그래픽 탑재 여부',
+  // --- 👇 [신규] 벤치마크 라벨 추가 ---
+  bench_cinebench_r23_multi: 'Cinebench R23 (Multi)',
+  bench_cinebench_r23_single: 'Cinebench R23 (Single)',
+  bench_geekbench_6_multi: 'Geekbench 6 (Multi)',
+  bench_geekbench_6_single: 'Geekbench 6 (Single)',
+  bench_blender_median: 'Blender (Median)',
+  bench_3dmark_timespy_cpu: '3DMark Time Spy (CPU)',
+  product_type: '제품 분류',
+  cooling_method: '냉각 방식',
+  air_cooling_form: '공랭 형태',
+  cooler_height: '쿨러 높이',
+  radiator_length: '라디에이터',
+  fan_size: '팬 크기',
+  fan_connector: '팬 커넥터',
+  device_type: '사용 장치',
+  product_class: '제품 분류',
   capacity: '메모리 용량',
-  ramCount: '램 개수',
-  clockSpeed: '동작 클럭(대역폭)',
-  ramTiming: '램 타이밍',
-  heatsinkPresence: '히트싱크',
+  ram_count: '램 개수',
+  clock_speed: '동작 클럭(대역폭)',
+  ram_timing: '램 타이밍',
+  heatsink_presence: '히트싱크',
   chipset: '세부 칩셋',
-  formFactor: '폼팩터',
-  memorySpec: '메모리 종류',
-  memorySlots: '메모리 슬롯',
-  vgaConnection: 'VGA 연결',
-  m2Slots: 'M.2',
-  wirelessLan: '무선랜 종류',
-  nvidiaChipset: 'NVIDIA 칩셋',
-  amdChipset: 'AMD 칩셋',
-  intelChipset: '인텔 칩셋',
-  gpuInterface: '인터페이스',
-  gpuMemoryCapacity: '메모리 용량',
-  outputPorts: '출력 단자',
-  recommendedPsu: '권장 파워용량',
-  fanCount: '팬 개수',
-  gpuLength: '가로(길이)',
-  ssdInterface: '인터페이스',
-  memoryType: '메모리 타입',
-  ramMounted: 'RAM 탑재',
-  sequentialRead: '순차읽기',
-  sequentialWrite: '순차쓰기',
-  hddSeries: '시리즈 구분',
-  diskCapacity: '디스크 용량',
-  rotationSpeed: '회전수',
-  bufferCapacity: '버퍼 용량',
-  hddWarranty: 'A/S 정보',
-  caseSize: '케이스 크기',
-  supportedBoard: '지원보드 규격',
-  sidePanel: '측면 개폐 방식',
-  psuLength: '파워 장착 길이',
-  vgaLength: 'VGA 길이',
-  cpuCoolerHeightLimit: 'CPU쿨러 높이',
-  ratedOutput: '정격출력',
-  eightyPlusCert: '80PLUS인증',
-  etaCert: 'ETA인증',
-  cableConnection: '케이블연결',
-  pcie16pin: 'PCIe 16핀(12+4)',
+  form_factor: '폼팩터',
+  memory_spec: '메모리 종류',
+  memory_slots: '메모리 슬롯',
+  vga_connection: 'VGA 연결',
+  m2_slots: 'M.2',
+  wireless_lan: '무선랜 종류',
+  nvidia_chipset: 'NVIDIA 칩셋',
+  amd_chipset: 'AMD 칩셋',
+  intel_chipset: '인텔 칩셋',
+  gpu_interface: '인터페이스',
+  gpu_memory_capacity: '메모리 용량',
+  output_ports: '출력 단자',
+  recommended_psu: '권장 파워용량',
+  fan_count: '팬 개수',
+  gpu_length: '가로(길이)',
+  ssd_interface: '인터페이스',
+  memory_type: '메모리 타입',
+  ram_mounted: 'RAM 탑재',
+  sequential_read: '순차읽기',
+  sequential_write: '순차쓰기',
+  hdd_series: '시리즈 구분',
+  disk_capacity: '디스크 용량',
+  rotation_speed: '회전수',
+  buffer_capacity: '버퍼 용량',
+  hdd_warranty: 'A/S 정보',
+  case_size: '케이스 크기',
+  supported_board: '지원보드 규격',
+  side_panel: '측면 개폐 방식',
+  psu_length: '파워 장착 길이',
+  vga_length: 'VGA 길이',
+  cpu_cooler_height_limit: 'CPU쿨러 높이',
+  rated_output: '정격출력',
+  eighty_plus_cert: '80PLUS인증',
+  eta_cert: 'ETA인증',
+  cable_connection: '케이블연결',
+  pcie_16pin: 'PCIe 16핀(12+4)',
 };
 
 const FILTER_ORDER_MAP = {
-  CPU: ['manufacturer', 'codename', 'cpuSeries', 'cpuClass', 'socket', 'cores', 'threads', 'integratedGraphics'],
-  쿨러: ['manufacturer', 'productType', 'coolingMethod', 'airCoolingForm', 'coolerHeight', 'radiatorLength', 'fanSize', 'fanConnector'],
-  메인보드: ['manufacturer', 'socket', 'chipset', 'formFactor', 'memorySpec', 'memorySlots', 'vgaConnection', 'm2Slots', 'wirelessLan'],
-  RAM: ['manufacturer', 'deviceType', 'productClass', 'capacity', 'ramCount', 'clockSpeed', 'ramTiming', 'heatsinkPresence'],
-  그래픽카드: ['manufacturer', 'nvidiaChipset', 'amdChipset', 'intelChipset', 'gpuInterface', 'gpuMemoryCapacity', 'outputPorts', 'recommendedPsu', 'fanCount', 'gpuLength'],
-  SSD: ['manufacturer', 'formFactor', 'ssdInterface', 'capacity', 'memoryType', 'ramMounted', 'sequentialRead', 'sequentialWrite'],
-  HDD: ['manufacturer', 'hddSeries', 'diskCapacity', 'rotationSpeed', 'bufferCapacity', 'hddWarranty'],
-  케이스: ['manufacturer', 'productType', 'caseSize', 'supportedBoard', 'sidePanel', 'psuLength', 'vgaLength', 'cpuCoolerHeightLimit'],
-  파워: ['manufacturer', 'productType', 'ratedOutput', 'eightyPlusCert', 'etaCert', 'cableConnection', 'pcie16pin']
+  CPU: ['manufacturer', 'codename', 'cpu_series', 'cpu_class', 'socket', 'cores', 'threads', 'integrated_graphics'],
+  쿨러: ['manufacturer', 'product_type', 'cooling_method', 'air_cooling_form', 'cooler_height', 'radiator_length', 'fan_size', 'fan_connector'],
+  메인보드: ['manufacturer', 'socket', 'chipset', 'form_factor', 'memory_spec', 'memory_slots', 'vga_connection', 'm2_slots', 'wireless_lan'],
+  RAM: ['manufacturer', 'device_type', 'product_class', 'capacity', 'ram_count', 'clock_speed', 'ram_timing', 'heatsink_presence'],
+  그래픽카드: ['manufacturer', 'nvidia_chipset', 'amd_chipset', 'intel_chipset', 'gpu_interface', 'gpu_memory_capacity', 'output_ports', 'recommended_psu', 'fan_count', 'gpu_length'],
+  SSD: ['manufacturer', 'form_factor', 'ssd_interface', 'capacity', 'memory_type', 'ram_mounted', 'sequential_read', 'sequential_write'],
+  HDD: ['manufacturer', 'hdd_series', 'disk_capacity', 'rotation_speed', 'buffer_capacity', 'hdd_warranty'],
+  케이스: ['manufacturer', 'product_type', 'case_size', 'supported_board', 'side_panel', 'psu_length', 'vga_length', 'cpu_cooler_height_limit'],
+  파워: ['manufacturer', 'product_type', 'rated_output', 'eighty_plus_cert', 'eta_cert', 'cable_connection', 'pcie_16pin']
 };
 
+// --- [수정됨] JSON specs 필드를 파싱하여 스펙 문자열을 생성하는 함수 ---
 const generateSpecString = (part) => {
   let specs = [];
+  let parsedSpecs = {}; // 1. 빈 스펙 객체 생성
+
+  // 2. part.specs (JSON 문자열)가 존재하면 파싱하여 parsedSpecs 객체에 저장
+  try {
+    if (part.specs) {
+      parsedSpecs = JSON.parse(part.specs);
+    }
+  } catch (e) {
+    console.error("Failed to parse specs JSON:", e, part.specs);
+  }
+
+  // 3. part.cores 대신 parsedSpecs.cores (snake_case)에서 데이터를 찾도록 수정
+  // (Python 크롤러가 snake_case로 저장했으므로 snake_case 키를 사용)
   switch (part.category) {
-    case 'CPU': specs = [part.manufacturer, part.socket, part.cores, part.threads, part.cpuSeries, part.codename]; break;
-    case '쿨러': specs = [part.manufacturer, part.coolingMethod, part.airCoolingForm, part.fanSize, part.radiatorLength]; break;
-    case '메인보드': specs = [part.manufacturer, part.socket, part.chipset, part.formFactor, part.memorySpec]; break;
-    case 'RAM': specs = [part.manufacturer, part.productClass, part.capacity, part.clockSpeed, part.ramTiming]; break;
-    case '그래픽카드': specs = [part.manufacturer, (part.nvidiaChipset || part.amdChipset || part.intelChipset), part.gpuMemoryCapacity, part.gpuLength]; break;
-    case 'SSD': specs = [part.manufacturer, part.formFactor, part.ssdInterface, part.capacity, part.sequentialRead]; break;
-    case 'HDD': specs = [part.manufacturer, part.diskCapacity, part.rotationSpeed, part.bufferCapacity]; break;
-    case '케이스': specs = [part.manufacturer, part.caseSize, part.supportedBoard, part.cpuCoolerHeightLimit, part.vgaLength]; break;
-    case '파워': specs = [part.manufacturer, part.ratedOutput, part.eightyPlusCert, part.cableConnection]; break;
-    default: return '';
+    case 'CPU':
+      specs = [
+        parsedSpecs.manufacturer,
+        parsedSpecs.socket,
+        parsedSpecs.cores,
+        parsedSpecs.threads,
+        parsedSpecs.cpu_series, 
+        parsedSpecs.codename
+      ];
+      break;
+    case '쿨러':
+      specs = [
+        parsedSpecs.manufacturer,
+        parsedSpecs.cooling_method, 
+        parsedSpecs.air_cooling_form, 
+        parsedSpecs.fan_size, 
+        parsedSpecs.radiator_length 
+      ];
+      break;
+    case '메인보드':
+      specs = [
+        parsedSpecs.manufacturer,
+        parsedSpecs.socket,
+        parsedSpecs.chipset,
+        parsedSpecs.form_factor, 
+        parsedSpecs.memory_spec 
+      ];
+      break;
+    case 'RAM':
+      specs = [
+        parsedSpecs.manufacturer,
+        parsedSpecs.product_class, 
+        parsedSpecs.capacity,
+        parsedSpecs.clock_speed, 
+        parsedSpecs.ram_timing 
+      ];
+      break;
+    case '그래픽카드':
+      specs = [
+        parsedSpecs.manufacturer,
+        (parsedSpecs.nvidia_chipset || parsedSpecs.amd_chipset || parsedSpecs.intel_chipset), 
+        parsedSpecs.gpu_memory_capacity, 
+        parsedSpecs.gpu_length 
+      ];
+      break;
+    case 'SSD':
+      specs = [
+        parsedSpecs.manufacturer,
+        parsedSpecs.form_factor, 
+        parsedSpecs.ssd_interface, 
+        parsedSpecs.capacity,
+        parsedSpecs.sequential_read 
+      ];
+      break;
+    case 'HDD':
+      specs = [
+        parsedSpecs.manufacturer,
+        parsedSpecs.disk_capacity, 
+        parsedSpecs.rotation_speed, 
+        parsedSpecs.buffer_capacity 
+      ];
+      break;
+    case '케이스':
+      specs = [
+        parsedSpecs.manufacturer,
+        parsedSpecs.case_size, 
+        parsedSpecs.supported_board, 
+        parsedSpecs.cpu_cooler_height_limit, 
+        parsedSpecs.vga_length 
+      ];
+      break;
+    case '파워':
+      specs = [
+        parsedSpecs.manufacturer,
+        parsedSpecs.rated_output, 
+        parsedSpecs.eighty_plus_cert, 
+        parsedSpecs.cable_connection 
+      ];
+      break;
+    default:
+      return '';
   }
   return specs.filter(Boolean).join(' / ');
 };
@@ -113,6 +209,8 @@ function App() {
   const [sortOption, setSortOption] = useState('reviewCount,desc');
   const [comparisonList, setComparisonList] = useState([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+  const [selectedPart, setSelectedPart] = useState(null);
   
   // --- [추가] 아코디언 UI를 위한 상태 관리 ---
   const [openFilter, setOpenFilter] = useState('manufacturer'); 
@@ -170,6 +268,16 @@ function App() {
     setComparisonList(prevList => prevList.filter(p => p.id !== partId));
   };
 
+  const handleOpenDetailModal = (part) => {
+    setSelectedPart(part);
+    setIsDetailModalOpen(true);
+  };
+
+  const handleCloseDetailModal = () => {
+    setIsDetailModalOpen(false);
+    setSelectedPart(null); // 선택된 부품 정보 초기화
+  };
+
   const fetchParts = useCallback(async (category, filters, keyword, page, sort) => {
     setIsLoading(true);
     try {
@@ -191,7 +299,7 @@ function App() {
         params.append('keyword', keyword);
       }
       
-      const response = await axios.get(`/api/parts?${params.toString()}`);
+      const response = await axios.get(`${API_BASE_URL}/api/parts?${params.toString()}`);
       
       setParts(response.data.content);
       setTotalPages(response.data.totalPages);
@@ -224,7 +332,7 @@ function App() {
     const loadCategoryData = async () => {
       setIsLoading(true);
       try {
-        const filtersRes = await axios.get(`/api/filters?category=${selectedCategory}`);
+        const filtersRes = await axios.get(`${API_BASE_URL}/api/filters?category=${selectedCategory}`);
         setAvailableFilters(filtersRes.data);
       } catch (error) {
         console.error("필터 목록을 불러오는 중 오류가 발생했습니다.", error);
@@ -283,7 +391,7 @@ function App() {
     setCurrentPage(pageNumber);
     fetchParts(selectedCategory, selectedFilters, searchTerm, pageNumber, sortOption);
   };
-
+ 
   // --- [추가] 이전 페이지로 이동하는 함수 ---
   const handlePrevPage = () => {
     if (currentPage > 0) {
@@ -495,7 +603,7 @@ function App() {
                   {parts.length > 0 ? parts.map(part => {
                     const specString = generateSpecString(part);
                     return (
-                      <a key={part.id} href={part.link} target="_blank" rel="noopener noreferrer" className="card-link">
+                      <div key={part.id} className="card-link" onClick={() => handleOpenDetailModal(part)}> 
                         <div className="part-card">
                           <img src={part.imgSrc || 'https://img.danawa.com/new/noData/img/noImg_160.gif'} alt={part.name} className="part-image" />
                           <div className="part-info">
@@ -514,7 +622,7 @@ function App() {
                             </button>
                           </div>
                         </div>
-                      </a>
+                      </div>
                     );
                   }) : <div className="no-results">검색 결과가 없습니다.</div>}
                 </div>
@@ -569,6 +677,13 @@ function App() {
 
       {isModalOpen && (
         <ComparisonModal products={comparisonList} onClose={() => setIsModalOpen(false)} filterLabels={FILTER_LABELS} filterOrderMap={FILTER_ORDER_MAP}/>
+      )}
+      {isDetailModalOpen && selectedPart && (
+          <PartDetailModal 
+              part={selectedPart} 
+              onClose={handleCloseDetailModal}
+              filterLabels={FILTER_LABELS} /* 👈 스펙 라벨링을 위해 전달 */
+          />
       )}
     </div>
   );

@@ -1,246 +1,86 @@
 package com.danawa.webservice.domain;
 
 import jakarta.persistence.*;
+import lombok.AccessLevel;
+import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-import org.hibernate.annotations.CreationTimestamp;
-import org.hibernate.annotations.UpdateTimestamp;
 
-import java.math.BigDecimal;
-import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
 @Getter
-@NoArgsConstructor
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
 @Entity
-@Table(name = "parts")
-public class Part {
+@Table(name = "parts") // 테이블명 명시 (선택 사항이지만 권장)
+// createdAt, updatedAt 때문에 BaseTimeEntity 상속
+public class Part extends BaseTimeEntity { 
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(length = 255, nullable = false)
-    private String name;
+    @Column(nullable = false)
+    private String name; // 상품명
 
-    @Column(length = 50, nullable = false)
-    private String category;
+    @Column(nullable = false, length = 50)
+    private String category; // 카테고리
 
     @Column(nullable = false)
-    private int price;
+    private Integer price; // 가격
 
-    @Column(length = 512, nullable = false, unique = true)
-    private String link;
+    @Column(length = 512, unique = true) // link는 중복되면 안 됨
+    private String link; // 상품 링크
 
-    @Column(name = "img_src", length = 512)
-    private String imgSrc;
+    @Column(length = 512)
+    private String imgSrc; // 이미지 링크
 
-    @Column(name = "star_rating", precision = 3, scale = 1)
-    private BigDecimal starRating;
+    private String manufacturer; // 제조사
 
-    @Column(name = "rating_review_count")
-    private Integer ratingReviewCount;
+    // (신규) AI 판단 근거
+    private String warrantyInfo; // 보증 기간 (예: "5년")
 
-    // ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼
-    // CPU 상세 필드
-    @Column(name = "manufacturer")
-    private String manufacturer;
-
-    @Column(name = "codename")
-    private String codename;
-
-    @Column(name = "cpu_series")
-    private String cpuSeries;
-
-    @Column(name = "cpu_class")
-    private String cpuClass;
-
-    @Column(name = "socket")
-    private String socket;
-
-    @Column(name = "cores")
-    private String cores;
-
-    @Column(name = "threads")
-    private String threads;
-
-    @Column(name = "integrated_graphics")
-    private String integratedGraphics;
-
-    @Column(name = "review_count")
+    // (기존) 다나와 리뷰/별점 (인기도)
     private Integer reviewCount;
+    private Float starRating;
 
-    @Column(name = "core_type")
-    private String coreType;
+    // (신규) 1:1 관계 매핑
+    @OneToOne(mappedBy = "part", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    private PartSpec partSpec;
 
-    //쿨러 상세 필드
-    @Column(name = "product_type")
-    private String productType;
+    // (신규) 1:N 관계 매핑
+    @OneToMany(mappedBy = "part", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    private List<CommunityReview> communityReviews = new ArrayList<>();
 
-    @Column(name = "cooling_method")
-    private String coolingMethod;
+    // --- 👇 [신규] 벤치마크 결과를 담을 리스트 추가 ---
+    @OneToMany(mappedBy = "part", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    private List<BenchmarkResult> benchmarkResults = new ArrayList<>();
 
-    @Column(name = "air_cooling_form")
-    private String airCoolingForm;
+    // --- 여기부터 ---
+    // codename, cpuSeries, cpuClass, socket, cores, threads, ... 등
+    // ... 모든 세부 스펙 필드를 전부 삭제합니다 ...
+    // ... pcie16pin 까지 전부 삭제 ---
 
-    @Column(name = "cooler_height")
-    private String coolerHeight;
+    // --- 기존의 createdAt, updatedAt 필드 삭제 ---
+    // (BaseTimeEntity 가 대신하므로)
 
-    @Column(name = "radiator_length")
-    private String radiatorLength;
+    // 빌더 패턴도 공통 필드만 남기고 수정합니다.
+    @Builder
+    public Part(String name, String category, Integer price, String link, String imgSrc, 
+                String manufacturer, String warrantyInfo, Integer reviewCount, Float starRating) {
+        this.name = name;
+        this.category = category;
+        this.price = price;
+        this.link = link;
+        this.imgSrc = imgSrc;
+        this.manufacturer = manufacturer;
+        this.warrantyInfo = warrantyInfo;
+        this.reviewCount = reviewCount;
+        this.starRating = starRating;
+    }
 
-    @Column(name = "fan_size")
-    private String fanSize;
-
-    @Column(name = "fan_connector")
-    private String fanConnector;
-
-
-    //메인보드 상세 필드
-
-    @Column(name = "chipset")
-    private String chipset;
-
-    @Column(name = "memory_slots")
-    private String memorySlots;
-
-    @Column(name = "vga_connection")
-    private String vgaConnection;
-
-    @Column(name = "m2_slots")
-    private String m2Slots;
-
-    @Column(name = "wireless_lan")
-    private String wirelessLan;
-
-    @Column(name = "form_factor")
-    private String formFactor;
-
-    @Column(name = "memory_spec")
-    private String memorySpec;
-
-    //램 상세 필드
-    @Column(name = "device_type")
-    private String deviceType;
-
-    @Column(name = "product_class")
-    private String productClass;
-
-    @Column(name = "capacity")
-    private String capacity;
-
-    @Column(name = "ram_count")
-    private String ramCount;
-
-    @Column(name = "clock_speed")
-    private String clockSpeed;
-
-    @Column(name = "ram_timing")
-    private String ramTiming;
-
-    @Column(name = "heatsink_presence")
-    private String heatsinkPresence;
-
-    //그래픽카드 상세 필드
-    @Column(name = "nvidia_chipset")
-    private String nvidiaChipset;
-
-    @Column(name = "amd_chipset")
-    private String amdChipset;
-
-    @Column(name = "intel_chipset")
-    private String intelChipset;
-
-    @Column(name = "gpu_interface")
-    private String gpuInterface;
-
-    @Column(name = "gpu_memory_capacity")
-    private String gpuMemoryCapacity;
-
-    @Column(name = "output_ports")
-    private String outputPorts;
-
-    @Column(name = "recommended_psu")
-    private String recommendedPsu;
-
-    @Column(name = "fan_count")
-    private String fanCount;
-
-    @Column(name = "gpu_length")
-    private String gpuLength;
-
-    // SSD 상세 필드
-    @Column(name = "ssd_interface")
-    private String ssdInterface;
-
-    @Column(name = "memory_type")
-    private String memoryType;
-
-    @Column(name = "ram_mounted")
-    private String ramMounted;
-
-    @Column(name = "sequential_read")
-    private String sequentialRead;
-
-    @Column(name = "sequential_write")
-    private String sequentialWrite;
-
-    // HDD 상세 필드
-
-    @Column(name = "hdd_series")
-    private String hddSeries;
-
-    @Column(name = "disk_capacity")
-    private String diskCapacity;
-
-    @Column(name = "rotation_speed")
-    private String rotationSpeed;
-
-    @Column(name = "buffer_capacity")
-    private String bufferCapacity;
-
-    @Column(name = "hdd_warranty")
-    private String hddWarranty;
-
-    //케이스 상세 필드
-    @Column(name = "case_size")
-    private String caseSize;
-
-    @Column(name = "supported_board")
-    private String supportedBoard;
-
-    @Column(name = "side_panel")
-    private String sidePanel;
-
-    @Column(name = "psu_length")
-    private String psuLength;
-
-    @Column(name = "vga_length")
-    private String vgaLength;
-
-    @Column(name = "cpu_cooler_height_limit")
-    private String cpuCoolerHeightLimit;
-
-    //파워 상세 필드
-    @Column(name = "rated_output")
-    private String ratedOutput;
-
-    @Column(name = "eighty_plus_cert")
-    private String eightyPlusCert;
-
-    @Column(name = "eta_cert")
-    private String etaCert;
-
-    @Column(name = "cable_connection")
-    private String cableConnection;
-
-    @Column(name = "pcie_16pin")
-    private String pcie16pin;
-
-    @Column(name = "created_at", updatable = false)
-    @CreationTimestamp
-    private LocalDateTime createdAt;
-
-    @Column(name = "updated_at")
-    @UpdateTimestamp
-    private LocalDateTime updatedAt;
+    // (신규) 연관관계 편의 메서드 (양방향 매핑 시 필요)
+    public void setPartSpec(PartSpec partSpec) {
+        this.partSpec = partSpec;
+    }
 }

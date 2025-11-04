@@ -10,6 +10,10 @@ import org.springframework.util.MultiValueMap;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import com.danawa.webservice.service.ChatService; // ChatService import 추가
+import org.springframework.web.bind.annotation.PostMapping; // POST 요청 위해 추가
+import org.springframework.web.bind.annotation.RequestBody; // 요청 본문 받기 위해 추가
+import com.danawa.webservice.dto.PartResponseDto;
 
 import java.util.List;
 import java.util.Map;
@@ -20,6 +24,7 @@ import java.util.Set; // 반환 타입 Set으로 변경
 public class PartController {
 
     private final PartService partService;
+    private final ChatService chatService; // ChatService 주입 추가
 
     /**
      * 상품 목록을 필터링, 페이징, 정렬하여 반환하는 API 입니다.
@@ -32,7 +37,7 @@ public class PartController {
 
     // [신설] ID 목록으로 여러 부품을 조회하는 API
     @GetMapping("/api/parts/compare")
-    public ResponseEntity<List<Part>> getPartsByIds(@RequestParam List<Long> ids) {
+    public ResponseEntity<List<PartResponseDto>> getPartsByIds(@RequestParam List<Long> ids) {
         List<Part> parts = partService.findByIds(ids);
         return ResponseEntity.ok(parts);
     }
@@ -47,5 +52,11 @@ public class PartController {
         // 이 메서드는 해당 카테고리의 모든 필터와 값들을 Map 형태로 반환할 것입니다.
         Map<String, Set<String>> filters = partService.getAvailableFiltersForCategory(category);
         return ResponseEntity.ok(filters);
+    }
+
+    @PostMapping("/api/chat")
+    public ResponseEntity<String> getAiChatResponse(@RequestBody String userQuery) {
+        String aiResponse = chatService.getAiResponse(userQuery);
+        return ResponseEntity.ok(aiResponse);
     }
 }

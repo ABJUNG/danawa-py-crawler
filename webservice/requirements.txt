@@ -1,0 +1,7 @@
+playwright
+beautifulsoup4
+sqlalchemy
+mysql-connector-python
+lxml # BeautifulSoup가 lxml을 사용하므로 추가
+playwright-stealth==1.0.6
+google-generativeai

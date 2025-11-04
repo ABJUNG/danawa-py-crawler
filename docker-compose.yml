@@ -1,0 +1,75 @@
+services:
+  # MySQL 데이터베이스 서비스
+  db:
+    image: mysql:8.0 # MySQL 8.0 이미지 사용
+    container_name: danawa-db
+    environment:
+      MYSQL_ROOT_PASSWORD: 1234 # application.properties와 동일하게 설정
+      MYSQL_DATABASE: danawa # application.properties와 동일하게 설정
+      TZ: Asia/Seoul # 시간대 설정
+    ports:
+      - "3307:3306" # 호스트와 컨테이너 포트 연결
+    volumes:
+      - db_data:/var/lib/mysql # 데이터 유지를 위한 볼륨 마운트
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci --default-authentication-plugin=mysql_native_password
+
+  # Java Spring Boot 백엔드 서비스
+  backend:
+    build:
+      context: ./webservice # Dockerfile이 있는 경로
+      dockerfile: Dockerfile
+    container_name: danawa-backend
+    depends_on:
+      - db # DB 서비스가 먼저 실행되도록 설정
+    env_file: # 👈 이 부분을 추가
+    - ./.env  # 👈 .env 파일을 읽어 GOOGLE_API_KEY를 주입
+    ports:
+      - "8080:8080"
+    environment:
+      # application.properties의 DB 설정을 Docker 환경에 맞게 오버라이드
+      SPRING_DATASOURCE_URL: jdbc:mysql://db:3306/danawa?useSSL=false&serverTimezone=Asia/Seoul&allowPublicKeyRetrieval=true
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: 1234
+      # TZ: Asia/Seoul # 필요시 시간대 설정
+    # JAR 파일을 사용하여 애플리케이션 실행 (Dockerfile에서 빌드된 JAR 사용)
+
+  # React 프론트엔드 서비스
+  frontend:
+    build:
+      context: ./webservice/frontend # Dockerfile이 있는 경로
+      dockerfile: Dockerfile
+    container_name: danawa-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development # 개발 모드 설정
+      - CHOKIDAR_USEPOLLING=true # 파일 변경 감지 방식 변경 (Docker 환경)
+      - REACT_APP_API_URL=http://localhost:8080 # 백엔드 API URL 설정 (브라우저에서 접근 가능한 호스트 포트 사용)
+    # Dockerfile의 CMD ["npm", "start"]를 사용하여 애플리케이션 실행
+
+  # Python 크롤러 서비스 (필요 시 실행)
+  crawler:
+    build:
+      context: .
+      dockerfile: Dockerfile.crawler
+    env_file: # 👈 이 부분을 추가
+      - ./.env  # 👈 .env 파일의 모든 변수를 이 컨테이너로 주입
+    depends_on:
+      - db
+    volumes:
+      - .:/app # 크롤러 스크립트 마운트
+    working_dir: /app
+    environment:
+      DB_HOST: db # docker-compose 네트워크 내의 DB 서비스 이름 사용
+      DB_PORT: 3306
+      DB_USER: root
+      DB_PASSWORD: 1234
+      DB_NAME: danawa
+      # TZ: Asia/Seoul # 필요시 시간대 설정
+    # docker-compose up 시 바로 실행되지 않고, 필요할 때 수동 실행하도록 entrypoint 설정
+    entrypoint: ["python", "crawler.py"]
+    # tty: true # 필요 시 컨테이너 유지
+
+volumes:
+  db_data: # DB 데이터 저장 볼륨
+  maven_repo: # Maven 의존성 저장 볼륨
