@@ -2,7 +2,6 @@ package com.danawa.webservice.dto;
 
 import com.danawa.webservice.domain.Part;
 import com.danawa.webservice.domain.CommunityReview;
-import com.danawa.webservice.domain.BenchmarkResult; // 👈 1. import 추가
 import lombok.Getter;
 
 import java.util.List; // 👈 2. import 추가
