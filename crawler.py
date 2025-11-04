@@ -7,6 +7,7 @@ import time
 from playwright_stealth import stealth_sync
 from urllib.parse import quote_plus
 import requests
+import statistics
 
 
 # --- 1. 기본 설정 ---
@@ -30,9 +31,11 @@ DB_NAME = 'danawa'
 
 # --- 3. 크롤링 카테고리 ---
 CATEGORIES = {
-    'CPU': 'cpu', 
+    #'CPU': 'cpu', 
     # '쿨러': 'cooler', '메인보드': 'mainboard', 'RAM': 'RAM',
-    # '그래픽카드': 'vga', 'SSD': 'ssd', 'HDD': 'hdd', '케이스': 'pc case', '파워': 'power'
+     '그래픽카드': 'vga'
+    #, 'SSD': 'ssd', 'HDD': 'hdd', 
+    # '케이스': 'pc case', '파워': 'power'
 }
 
 # --- 5. SQLAlchemy 엔진 생성 ---
@@ -1068,6 +1071,275 @@ def scrape_blender_median(page, cpu_name, conn, part_id):
     except Exception as e:
         print(f"        -> (경고) Blender Median Score 수집 중 오류: {type(e).__name__} - {str(e)[:100]}")
 
+def scrape_blender_gpu(page, gpu_name, conn, part_id):
+    """
+    opendata.blender.org에서 GPU Median Score 수집
+    DataTables API 사용: /benchmarks/query/?compute_type=GPU&response_type=datatables
+    참고: 사이트 개요는 Blender Open Data 메인 페이지 참고.
+    """
+    try:
+        if not gpu_name:
+            return
+        # 공통 라벨/토큰 추출
+        common_label, search_token = _normalize_gpu_model(gpu_name)
+
+        # 중복 체크: 이미 데이터가 있으면 수집하지 않음
+        check_sql = text("""
+            SELECT EXISTS (
+                SELECT 1 FROM benchmark_results 
+                WHERE part_type = 'GPU'
+                AND cpu_model = :model 
+                AND source = 'blender_opendata'
+                AND test_name = 'Blender' 
+                AND test_version = '4.5.0'
+                AND scenario = 'Median GPU'
+            )
+        """)
+        exists_result = conn.execute(check_sql, {"model": common_label})
+        if exists_result.scalar() == 1:
+            print(f"        -> (건너뜀) Blender GPU Median 데이터가 이미 존재합니다.")
+            return
+
+        url = "https://opendata.blender.org/benchmarks/query/"
+        params = {
+            "compute_type": "GPU",
+            "group_by": "device_name",
+            "blender_version": "4.5.0",
+            "response_type": "datatables"
+        }
+        print(f"      -> Blender GPU Median 검색: {url}")
+
+        response = requests.get(url, params=params, timeout=20)
+        if response.status_code != 200:
+            print(f"        -> (경고) GPU API 응답 오류: {response.status_code}")
+            return
+
+        try:
+            data = response.json()
+        except:
+            print(f"        -> (경고) GPU JSON 파싱 실패")
+            return
+
+        if not isinstance(data, dict) or 'rows' not in data:
+            print(f"        -> (경고) GPU 잘못된 응답 구조")
+            return
+
+        columns = data.get('columns', [])
+        median_idx = None
+        device_idx = None
+        for i, col in enumerate(columns):
+            display_name = col.get('display_name', '') if isinstance(col, dict) else str(col)
+            if 'Median Score' in display_name or 'median' in display_name.lower():
+                median_idx = i
+            if 'Device Name' in display_name or 'device_name' in display_name.lower():
+                device_idx = i
+
+        if median_idx is None:
+            print(f"        -> (경고) GPU Median Score 컬럼을 찾지 못했습니다.")
+            return
+
+        rows = data.get('rows', [])
+        found = None
+        found_device = ''
+        for row in rows:
+            if not isinstance(row, list):
+                continue
+            dev = ''
+            if device_idx is not None and device_idx < len(row):
+                dev = str(row[device_idx])
+                if '<a' in dev:
+                    dev = re.sub(r'<[^>]+>', '', dev)
+                dev = dev.strip()
+
+            # 매칭: 숫자 토큰 또는 전체 이름의 핵심 단어 포함 여부
+            if search_token and search_token.lower() in dev.lower() or any(w for w in gpu_name.split() if w.lower() in dev.lower()):
+                if median_idx < len(row):
+                    try:
+                        val = float(row[median_idx])
+                        if val > 0:
+                            found = val
+                            found_device = dev
+                            break
+                    except:
+                        pass
+
+        if not found:
+            print(f"        -> (정보) Blender GPU Median 점수를 찾지 못했습니다.")
+            return
+
+        sql_bench = text("""
+            INSERT INTO benchmark_results (
+                part_id, part_type, cpu_model, source, test_name, test_version, scenario,
+                metric_name, value, unit, review_url
+            ) VALUES (
+                :part_id, :part_type, :cpu_model, :source, :test_name, :test_version, :scenario,
+                :metric_name, :value, :unit, :review_url
+            )
+            ON DUPLICATE KEY UPDATE
+                value = VALUES(value),
+                created_at = CURRENT_TIMESTAMP
+        """)
+
+        conn.execute(sql_bench, {
+            "part_id": part_id,
+            "part_type": "GPU",
+            "cpu_model": common_label,  # 공통 컬럼 재사용 (모델명 저장)
+            "source": "blender_opendata",
+            "test_name": "Blender",
+            "test_version": "4.5.0",
+            "scenario": "Median GPU",
+            "metric_name": "Score",
+            "value": found,
+            "unit": "pts",
+            "review_url": f"{url}?{'&'.join([f'{k}={v}' for k, v in params.items()])}"
+        })
+        print(f"        -> Blender GPU Median: {found} ({found_device})")
+    except Exception as e:
+        print(f"        -> (경고) Blender GPU Median 수집 중 오류: {type(e).__name__} - {str(e)[:100]}")
+
+def _trimmed_median(scores: list[float], trim_ratio: float = 0.1) -> float:
+    """윈저라이즈/트리밍 기반 중앙값. 점수 리스트에서 상/하위 trim_ratio 비율을 잘라낸 후 중앙값 계산."""
+    if not scores:
+        return 0.0
+    scores_sorted = sorted(scores)
+    n = len(scores_sorted)
+    k = int(n * trim_ratio)
+    trimmed = scores_sorted[k:n - k] if n > 2 * k and k > 0 else scores_sorted
+    try:
+        return float(statistics.median(trimmed))
+    except:
+        return float(trimmed[len(trimmed)//2]) if trimmed else 0.0
+
+def _parse_scores_for_gpu(html: str, gpu_name: str) -> list[float]:
+    """페이지 HTML에서 GPU 이름이 포함된 행/블록의 점수 숫자들을 추출."""
+    soup = BeautifulSoup(html, 'lxml')
+    text = soup.get_text(" ")
+    # GPU 식별: 이름의 숫자 토큰 기반
+    token_match = re.search(r"(\d{3,5})", gpu_name)
+    token = token_match.group(1) if token_match else None
+    # 점수 후보: 4~6자리 숫자
+    nums = re.findall(r"\b(\d{4,6})\b", text)
+    scores = []
+    for s in nums:
+        try:
+            val = int(s)
+            if 1000 <= val <= 200000:
+                scores.append(float(val))
+        except:
+            pass
+    # 간단 필터: 너무 많은 값이면 상위 100개만 사용
+    if len(scores) > 100:
+        scores = scores[:100]
+    return scores
+
+def _insert_bench(conn, part_id, part_type, model_name, source, test_name, scenario, value, unit, url):
+    sql_bench = text("""
+        INSERT INTO benchmark_results (
+            part_id, part_type, cpu_model, source, test_name, test_version, scenario,
+            metric_name, value, unit, review_url
+        ) VALUES (
+            :part_id, :part_type, :cpu_model, :source, :test_name, :test_version, :scenario,
+            :metric_name, :value, :unit, :review_url
+        )
+        ON DUPLICATE KEY UPDATE
+            value = VALUES(value),
+            created_at = CURRENT_TIMESTAMP
+    """)
+    conn.execute(sql_bench, {
+        "part_id": part_id,
+        "part_type": part_type,
+        "cpu_model": model_name,
+        "source": source,
+        "test_name": test_name,
+        "test_version": "",
+        "scenario": scenario,
+        "metric_name": "Score",
+        "value": value,
+        "unit": unit,
+        "review_url": url
+    })
+
+def _normalize_gpu_model(raw_name: str) -> tuple[str, str]:
+    """브랜드/유통사 제거하고 공통 GPU 모델로 정규화. 반환: (common_label, numeric_token)
+    예) "GALAX GeForce RTX 5060 DUAL" -> ("RTX 5060", "5060")
+    예) "AMD Radeon RX 7800 XT" -> ("RX 7800 XT", "7800")
+    """
+    name = (raw_name or '').upper()
+    # NVIDIA
+    m = re.search(r"(RTX|GTX)\s*(\d{3,4,5})\s*(TI|SUPER|XT)?", name)
+    if m:
+        series, num, suffix = m.group(1), m.group(2), m.group(3) or ''
+        series_label = f"{series} {num}{(' ' + suffix) if suffix else ''}".strip()
+        return series_label.title(), num
+    # AMD
+    m = re.search(r"(RX)\s*(\d{3,4,5})\s*(XT|XTX)?", name)
+    if m:
+        series, num, suffix = m.group(1), m.group(2), m.group(3) or ''
+        series_label = f"{series} {num}{(' ' + suffix) if suffix else ''}".strip()
+        return series_label, num
+    # Fallback: 숫자 토큰만
+    token = re.search(r"(\d{3,5})", name)
+    t = token.group(1) if token else name.split()[0:2]
+    common = f"GPU {t}" if isinstance(t, str) else ' '.join(t)
+    return common, (t if isinstance(t, str) else '')
+
+def scrape_3dmark_generic(page, gpu_name, conn, part_id, test_name: str, url: str):
+    """3DMark 랭킹/리더보드 페이지에서 GPU 점수를 수집하고 중앙값을 저장."""
+    try:
+        print(f"      -> 3DMark {test_name} 검색: {url}")
+        page.goto(url, wait_until='domcontentloaded', timeout=45000)
+        page.wait_for_timeout(2500)
+        html = page.content()
+        # 점수 후보 추출
+        # 숫자 토큰 기반으로만 검색 (브랜드 제거)
+        common_label, token = _normalize_gpu_model(gpu_name)
+        scores = _parse_scores_for_gpu(html, token or gpu_name)
+        if len(scores) < 3:
+            print(f"        -> (정보) 3DMark {test_name} 점수를 충분히 찾지 못했습니다. (수={len(scores)})")
+            return
+        # 트리밍 중앙값
+        median = _trimmed_median(scores, 0.1 if len(scores) >= 10 else 0.0)
+        if median <= 0:
+            print(f"        -> (정보) 3DMark {test_name} 중앙값 계산 실패")
+            return
+        _insert_bench(conn, part_id, "GPU", common_label, "3dmark", test_name, "GPU", median, "pts", url)
+        print(f"        -> 3DMark {test_name} Median: {int(median)} (samples={len(scores)}) [{common_label}]")
+    except Exception as e:
+        print(f"        -> (경고) 3DMark {test_name} 수집 중 오류: {type(e).__name__} - {str(e)[:100]}")
+
+def scrape_stable_diffusion_lambda(page, gpu_name, conn, part_id):
+    """
+    Lambda Labs GPU Benchmarks에서 SDXL / SD 1.5 images/sec 수집 시도.
+    페이지 구조 변화에 대비해 텍스트 기반 파싱.
+    """
+    try:
+        base_url = "https://lambdalabs.com/gpu-benchmarks"
+        print(f"      -> Stable Diffusion (Lambda) 검색: {base_url}")
+        page.goto(base_url, wait_until='domcontentloaded', timeout=20000)
+        page.wait_for_timeout(1500)
+        html = page.content()
+        soup = BeautifulSoup(html, 'lxml')
+        text = soup.get_text(" ")
+        # GPU 토큰/라벨
+        common_label, token = _normalize_gpu_model(gpu_name)
+        # SDXL / SD 1.5 섹션 근방의 숫자 추출 (images/sec)
+        # 예: "SDXL ... 12.3 images/sec" 형태 가정
+        patterns = {
+            "SDXL": r"SDXL[^\d]*(\d+(?:\.\d+)?)\s*images?/sec",
+            "SD 1.5": r"SD\s*1\.5[^\d]*(\d+(?:\.\d+)?)\s*images?/sec"
+        }
+        found_any = False
+        for scenario, pat in patterns.items():
+            m = re.search(pat, text, re.IGNORECASE)
+            if m:
+                val = float(m.group(1))
+                _insert_bench(conn, part_id, "GPU", common_label, "lambda", "Stable Diffusion", scenario, val, "imgs/sec", base_url)
+                print(f"        -> Stable Diffusion {scenario}: {val} imgs/sec")
+                found_any = True
+        if not found_any:
+            print("        -> (정보) Lambda Labs에서 SD 점수를 찾지 못했습니다.")
+    except Exception as e:
+        print(f"        -> (경고) Stable Diffusion (Lambda) 수집 중 오류: {type(e).__name__} - {str(e)[:100]}")
 def scrape_3dmark_timespy(page, cpu_name, conn, part_id):
     """
     topcpu.net에서 3DMark Time Spy CPU 점수 수집
@@ -1325,6 +1597,39 @@ def scrape_category(page, category_name, query, collect_reviews=False, collect_b
                                 time.sleep(2)
                                 
                                 print(f"      -> 벤치마크 수집 완료.")
+
+                            # --- 👇 [신규] GPU 벤치마크 수집 (Blender GPU) ---
+                            if collect_benchmarks and category_name == '그래픽카드':
+                                print(f"      -> GPU 벤치마크 수집 시도...")
+                                # 동일 모델(GPU 공통 라벨)에 대한 벤치가 이미 존재하면 스킵
+                                common_label, token = _normalize_gpu_model(name)
+                                skip_gpu = False
+                                try:
+                                    exists_any = conn.execute(text(
+                                        "SELECT EXISTS(SELECT 1 FROM benchmark_results WHERE part_type='GPU' AND cpu_model=:m)"
+                                    ), {"m": common_label}).scalar()
+                                    if exists_any == 1:
+                                        print(f"        -> (건너뜀) {common_label} 벤치마크가 이미 존재합니다.")
+                                        skip_gpu = True
+                                except:
+                                    pass
+                                if skip_gpu:
+                                    # 벤치마크만 건너뛰고, 나머지 저장/커밋은 계속 진행
+                                    pass
+                                # (1) Blender GPU Median (opendata.blender.org)
+                                scrape_blender_gpu(page, common_label, conn, part_id)
+                                time.sleep(2)
+                                # (2) 3DMark Fire Strike / Time Spy / Port Royal (랭킹/리더보드 페이지)
+                                # 주의: 실제 랭킹 URL은 제품/테스트별로 다를 수 있어, 기본 엔트리 포인트로 접근 후 텍스트 기반 파싱을 수행
+                                scrape_3dmark_generic(page, common_label, conn, part_id, 'Fire Strike', 'https://www.3dmark.com/search#advanced/fs')
+                                time.sleep(2)
+                                scrape_3dmark_generic(page, common_label, conn, part_id, 'Time Spy', 'https://www.3dmark.com/search#advanced/spy')
+                                time.sleep(2)
+                                scrape_3dmark_generic(page, common_label, conn, part_id, 'Port Royal', 'https://www.3dmark.com/search#advanced/pr')
+                                time.sleep(2)
+                                # (3) Stable Diffusion (Lambda Labs)
+                                scrape_stable_diffusion_lambda(page, common_label, conn, part_id)
+                                print(f"      -> GPU 벤치마크 수집 완료.")
 
                             # 2. DB에 저장 (기존)
                             specs_json = json.dumps(detailed_specs, ensure_ascii=False)
