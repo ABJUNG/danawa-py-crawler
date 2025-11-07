@@ -1499,13 +1499,13 @@ def scrape_3dmark_generic(page, gpu_name, conn, part_id, test_name: str, url: st
             )
             
             # URL로 직접 이동
-            page.goto(search_url_with_params, wait_until='networkidle', timeout=60000)
-            page.wait_for_timeout(8000)  # AJAX 로딩 대기
+            page.goto(search_url_with_params, wait_until='load', timeout=90000)
+            page.wait_for_timeout(10000)  # AJAX 로딩 대기
         else:
             # GPU ID를 찾지 못한 경우 기존 방식 사용
             main_url = "https://www.3dmark.com/search"
-            page.goto(main_url, wait_until='domcontentloaded', timeout=30000)
-            page.wait_for_timeout(5000)
+            page.goto(main_url, wait_until='load', timeout=45000)
+            page.wait_for_timeout(8000)
             
             # 고급 검색 모드로 전환
             try:
@@ -1631,35 +1631,111 @@ def scrape_3dmark_generic(page, gpu_name, conn, part_id, test_name: str, url: st
 
 def scrape_stable_diffusion_lambda(page, gpu_name, conn, part_id):
     """
-    Lambda Labs GPU Benchmarks에서 SDXL / SD 1.5 images/sec 수집 시도.
-    페이지 구조 변화에 대비해 텍스트 기반 파싱.
+    Lambda Labs GPU Benchmarks에서 SDXL / SD 1.5 images/sec 수집.
+    테이블 구조를 파싱하여 안정성을 높임.
     """
     try:
         base_url = "https://lambdalabs.com/gpu-benchmarks"
         print(f"      -> Stable Diffusion (Lambda) 검색: {base_url}")
-        page.goto(base_url, wait_until='domcontentloaded', timeout=20000)
-        page.wait_for_timeout(1500)
+        page.goto(base_url, wait_until='networkidle', timeout=20000)
+        
+        # 자바스크립트 렌더링을 기다리기 위해 특정 텍스트(표의 내용)가 나타날 때까지 대기
+        try:
+            # 페이지에 'RTX 4090'과 같은 특정 GPU 이름이 나타날 때까지 기다립니다.
+            # 이는 데이터 테이블이 동적으로 로드되었음을 의미합니다.
+            page.locator("text=RTX 4090").wait_for(timeout=15000)
+            print("        -> (디버그) 벤치마크 데이터 렌더링을 확인했습니다.")
+        except Exception:
+            print("        -> (경고) 벤치마크 데이터 렌더링을 기다리는 데 실패했습니다. 계속 진행합니다.")
+        
         html = page.content()
         soup = BeautifulSoup(html, 'lxml')
-        text = soup.get_text(" ")
-        # GPU 토큰/라벨
+        
         common_label, token = _normalize_gpu_model(gpu_name)
-        # SDXL / SD 1.5 섹션 근방의 숫자 추출 (images/sec)
-        # 예: "SDXL ... 12.3 images/sec" 형태 가정
-        patterns = {
-            "SDXL": r"SDXL[^\d]*(\d+(?:\.\d+)?)\s*images?/sec",
-            "SD 1.5": r"SD\s*1\.5[^\d]*(\d+(?:\.\d+)?)\s*images?/sec"
-        }
+        
+        table = soup.select_one('table.benchmark-table, table.benchmarks, table')
+        if not table:
+            print("        -> (경고) Lambda Labs에서 벤치마크 테이블을 찾지 못했습니다.")
+            return
+
+        # 헤더에서 컬럼 인덱스 찾기 (더 많은 케이스 대응)
+        header_cells = table.select('thead th, thead td')
+        if not header_cells:
+            # thead가 없는 경우, 테이블의 첫 번째 행을 헤더로 간주
+            header_row = table.select_one('tr')
+            if header_row:
+                header_cells = header_row.select('th, td')
+
+        if not header_cells:
+             print("        -> (경고) 테이블 헤더를 찾을 수 없습니다.")
+             return
+
+        gpu_col_idx = -1
+        sdxl_col_idx = -1
+        sd15_col_idx = -1
+
+        for i, cell in enumerate(header_cells):
+            header_text = cell.get_text().lower()
+            if 'gpu' in header_text:
+                gpu_col_idx = i
+            elif 'sdxl' in header_text and ('img/s' in header_text or 'images/sec' in header_text):
+                sdxl_col_idx = i
+            elif 'sd 1.5' in header_text and ('img/s' in header_text or 'images/sec' in header_text):
+                sd15_col_idx = i
+
+        if gpu_col_idx == -1:
+            print("        -> (경고) 테이블에서 'GPU' 컬럼을 찾지 못했습니다.")
+            return
+
+        # 테이블 바디에서 GPU 이름으로 행 찾기
+        rows = table.select('tbody tr')
+        if not rows:
+            # tbody가 없는 경우, 헤더 다음의 모든 tr을 대상으로 함
+            rows = table.select('tr')[1:]
+
         found_any = False
-        for scenario, pat in patterns.items():
-            m = re.search(pat, text, re.IGNORECASE)
-            if m:
-                val = float(m.group(1))
-                _insert_bench(conn, part_id, "GPU", common_label, "lambda", "Stable Diffusion", scenario, val, "imgs/sec", base_url)
-                print(f"        -> Stable Diffusion {scenario}: {val} imgs/sec")
-                found_any = True
+        
+        for row in rows:
+            cells = row.select('td')
+            if not cells:
+                cells = row.select('th')
+
+            if len(cells) <= max(gpu_col_idx, sdxl_col_idx if sdxl_col_idx != -1 else 0, sd15_col_idx if sd15_col_idx != -1 else 0):
+                continue
+            
+            row_gpu_name = cells[gpu_col_idx].get_text(strip=True)
+            
+            if common_label.lower() in row_gpu_name.lower():
+                print(f"        -> (디버그) 일치하는 GPU 행 발견: {row_gpu_name}")
+                
+                # SDXL
+                if sdxl_col_idx != -1:
+                    sdxl_text = cells[sdxl_col_idx].get_text(strip=True)
+                    try:
+                        sdxl_val = float(sdxl_text)
+                        _insert_bench(conn, part_id, "GPU", common_label, "lambda", "Stable Diffusion", "SDXL", sdxl_val, "imgs/sec", base_url)
+                        print(f"        -> Stable Diffusion SDXL: {sdxl_val} imgs/sec")
+                        found_any = True
+                    except (ValueError, TypeError):
+                        print(f"        -> (정보) SDXL 점수를 파싱할 수 없습니다: '{sdxl_text}'")
+
+                # SD 1.5
+                if sd15_col_idx != -1:
+                    sd15_text = cells[sd15_col_idx].get_text(strip=True)
+                    try:
+                        sd15_val = float(sd15_text)
+                        _insert_bench(conn, part_id, "GPU", common_label, "lambda", "Stable Diffusion", "SD 1.5", sd15_val, "imgs/sec", base_url)
+                        print(f"        -> Stable Diffusion SD 1.5: {sd15_val} imgs/sec")
+                        found_any = True
+                    except (ValueError, TypeError):
+                        print(f"        -> (정보) SD 1.5 점수를 파싱할 수 없습니다: '{sd15_text}'")
+                
+                if found_any:
+                    break
+        
         if not found_any:
-            print("        -> (정보) Lambda Labs에서 SD 점수를 찾지 못했습니다.")
+            print(f"        -> (정보) Lambda Labs에서 '{common_label}'에 대한 SD 점수를 찾지 못했습니다.")
+
     except Exception as e:
         print(f"        -> (경고) Stable Diffusion (Lambda) 수집 중 오류: {type(e).__name__} - {str(e)[:100]}")
 def scrape_3dmark_timespy(page, cpu_name, conn, part_id):
@@ -1944,8 +2020,10 @@ def scrape_category(page, category_name, query, collect_reviews=False, collect_b
                                 # (2) 3DMark Fire Strike / Time Spy / Port Royal (랭킹/리더보드 페이지)
                                 # 주의: 실제 랭킹 URL은 제품/테스트별로 다를 수 있어, 기본 엔트리 포인트로 접근 후 텍스트 기반 파싱을 수행
                                 scrape_3dmark_generic(page, common_label, conn, part_id, 'Fire Strike', 'https://www.3dmark.com/search#advanced/fs')
+                                page.goto("about:blank")
                                 time.sleep(2)
                                 scrape_3dmark_generic(page, common_label, conn, part_id, 'Time Spy', 'https://www.3dmark.com/search#advanced/spy')
+                                page.goto("about:blank")
                                 time.sleep(2)
                                 scrape_3dmark_generic(page, common_label, conn, part_id, 'Port Royal', 'https://www.3dmark.com/search#advanced/pr')
                                 time.sleep(2)
