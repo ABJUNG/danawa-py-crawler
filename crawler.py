@@ -5,7 +5,7 @@ from sqlalchemy import create_engine, text
 import json
 import time
 from playwright_stealth import stealth_sync
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, quote
 import requests
 import statistics
 
@@ -1074,8 +1074,8 @@ def scrape_blender_median(page, cpu_name, conn, part_id):
 def scrape_blender_gpu(page, gpu_name, conn, part_id):
     """
     opendata.blender.org에서 GPU Median Score 수집
-    DataTables API 사용: /benchmarks/query/?compute_type=GPU&response_type=datatables
-    참고: 사이트 개요는 Blender Open Data 메인 페이지 참고.
+    DataTables API 사용: /benchmarks/query/?group_by=device_name&blender_version=4.5.0
+    정확한 GPU 모델명 매칭 (예: RTX 5060과 RTX 5060 Ti 구분)
     """
     try:
         if not gpu_name:
@@ -1100,9 +1100,9 @@ def scrape_blender_gpu(page, gpu_name, conn, part_id):
             print(f"        -> (건너뜀) Blender GPU Median 데이터가 이미 존재합니다.")
             return
 
+        # 사용자 제공 URL 형식 사용
         url = "https://opendata.blender.org/benchmarks/query/"
         params = {
-            "compute_type": "GPU",
             "group_by": "device_name",
             "blender_version": "4.5.0",
             "response_type": "datatables"
@@ -1141,6 +1141,51 @@ def scrape_blender_gpu(page, gpu_name, conn, part_id):
         rows = data.get('rows', [])
         found = None
         found_device = ''
+        
+        # 정확한 모델명 매칭을 위한 패턴 생성
+        # 예: "RTX 5060" -> "5060"이 포함되지만 "5060 Ti"는 제외
+        # 예: "RTX 5060 Ti" -> "5060 Ti"가 포함되어야 함
+        
+        # 매칭 패턴: common_label의 정확한 형태로 매칭
+        # "RTX 5060"을 찾을 때는 "5060"이 포함되지만 "5060 Ti"는 제외
+        # "RTX 5060 Ti"를 찾을 때는 "5060 Ti"가 포함되어야 함
+        def matches_gpu_model(device_name: str, label: str, token: str) -> bool:
+            """GPU 모델명이 정확히 매칭되는지 확인 (5060과 5060 Ti 구분)"""
+            if not token:
+                return False
+                
+            dev_upper = device_name.upper()
+            label_upper = label.upper()
+            
+            # common_label이 "RTX 5060 Ti"인 경우
+            if 'TI' in label_upper or 'SUPER' in label_upper:
+                # 정확히 "5060 Ti" 또는 "5060TI" 형태가 포함되어야 함
+                if (f"{token} TI" in dev_upper) or (f"{token}TI" in dev_upper):
+                    return True
+                # 또는 common_label 전체가 포함되어야 함
+                if label_upper.replace(' ', '') in dev_upper.replace(' ', ''):
+                    return True
+                return False
+            else:
+                # common_label이 "RTX 5060"인 경우 (Ti 없음)
+                # "5060"이 포함되어야 하지만 "5060 Ti"는 제외
+                if token in dev_upper:
+                    # "5060 Ti"가 포함되어 있으면 제외
+                    if (f"{token} TI" in dev_upper) or (f"{token}TI" in dev_upper):
+                        return False
+                    # "5060"만 포함되어 있으면 매칭
+                    return True
+                # 또는 common_label 전체가 포함되어야 함
+                if label_upper.replace(' ', '') in dev_upper.replace(' ', ''):
+                    # "5060 Ti"가 포함되어 있으면 제외
+                    if 'TI' in dev_upper and token in dev_upper:
+                        # "5060" 다음에 "TI"가 오는지 확인
+                        pattern = re.compile(rf"{re.escape(token)}\s*TI", re.IGNORECASE)
+                        if pattern.search(dev_upper):
+                            return False
+                    return True
+                return False
+        
         for row in rows:
             if not isinstance(row, list):
                 continue
@@ -1151,20 +1196,21 @@ def scrape_blender_gpu(page, gpu_name, conn, part_id):
                     dev = re.sub(r'<[^>]+>', '', dev)
                 dev = dev.strip()
 
-            # 매칭: 숫자 토큰 또는 전체 이름의 핵심 단어 포함 여부
-            if search_token and search_token.lower() in dev.lower() or any(w for w in gpu_name.split() if w.lower() in dev.lower()):
+            # 정확한 모델명 매칭
+            if matches_gpu_model(dev, common_label, search_token):
                 if median_idx < len(row):
                     try:
                         val = float(row[median_idx])
                         if val > 0:
                             found = val
                             found_device = dev
+                            print(f"        -> (디버그) 매칭된 디바이스: {dev}")
                             break
                     except:
                         pass
 
         if not found:
-            print(f"        -> (정보) Blender GPU Median 점수를 찾지 못했습니다.")
+            print(f"        -> (정보) Blender GPU Median 점수를 찾지 못했습니다. (검색어: {common_label})")
             return
 
         sql_bench = text("""
@@ -1211,28 +1257,127 @@ def _trimmed_median(scores: list[float], trim_ratio: float = 0.1) -> float:
         return float(trimmed[len(trimmed)//2]) if trimmed else 0.0
 
 def _parse_scores_for_gpu(html: str, gpu_name: str) -> list[float]:
-    """페이지 HTML에서 GPU 이름이 포함된 행/블록의 점수 숫자들을 추출."""
+    """3DMark 페이지 HTML에서 GPU 이름이 포함된 행/블록의 Graphics Score만 추출."""
     soup = BeautifulSoup(html, 'lxml')
-    text = soup.get_text(" ")
     # GPU 식별: 이름의 숫자 토큰 기반
     token_match = re.search(r"(\d{3,5})", gpu_name)
     token = token_match.group(1) if token_match else None
-    # 점수 후보: 4~6자리 숫자
-    nums = re.findall(r"\b(\d{4,6})\b", text)
+    if not token:
+        return []
+    
     scores = []
-    for s in nums:
-        try:
-            val = int(s)
-            if 1000 <= val <= 200000:
-                scores.append(float(val))
-        except:
-            pass
-    # 간단 필터: 너무 많은 값이면 상위 100개만 사용
+    token_upper = token.upper()
+    
+    # 방법 1: 테이블 구조에서 Graphics Score 컬럼 찾기
+    # 더 넓은 범위의 선택자 사용
+    rows = soup.select('table tbody tr, table tr, .result-row, .benchmark-row, [class*="result"], [class*="benchmark"], [class*="score"], tr[class*="row"], div[class*="row"]')
+    
+    for row in rows:
+        row_text = row.get_text(" ", strip=True)
+        
+        # GPU 모델 토큰이 포함되어 있는지 확인 (대소문자 무시)
+        if token_upper not in row_text.upper():
+            continue
+        
+        # 방법 1-1: "Graphics Score" 또는 "GPU Score" 텍스트와 함께 있는 숫자 찾기
+        graphics_score_patterns = [
+            r"Graphics\s+Score[:\s]*[=]?\s*(\d{4,6})",
+            r"GPU\s+Score[:\s]*[=]?\s*(\d{4,6})",
+            r"Graphics[:\s]*[=]?\s*(\d{4,6})",
+            r"Graphics\s*:\s*(\d{4,6})",
+            r"GPU\s*:\s*(\d{4,6})",
+        ]
+        
+        for pattern in graphics_score_patterns:
+            match = re.search(pattern, row_text, re.IGNORECASE)
+            if match:
+                try:
+                    val = int(match.group(1))
+                    if 1000 <= val <= 200000:  # 유효한 점수 범위
+                        scores.append(float(val))
+                        break  # 하나 찾으면 다음 행으로
+                except:
+                    pass
+        
+        # 방법 1-2: 테이블 셀에서 숫자 찾기 (Graphics 관련 헤더가 있는 컬럼)
+        cells = row.select('td, th, [class*="cell"], [class*="column"]')
+        if len(cells) >= 2:  # 최소 2개 컬럼이 있어야 함
+            # 첫 번째 셀에 GPU 모델명이 있고, 다른 셀에 점수가 있을 수 있음
+            for i, cell in enumerate(cells):
+                cell_text = cell.get_text(" ", strip=True)
+                # GPU 모델명이 포함된 셀 다음의 셀들에서 점수 찾기
+                if token_upper in cell_text.upper() and i < len(cells) - 1:
+                    # 다음 셀들에서 점수 찾기
+                    for j in range(i + 1, min(i + 5, len(cells))):  # 최대 4개 셀 확인
+                        score_cell = cells[j].get_text(" ", strip=True)
+                        # 4-6자리 숫자만 추출
+                        num_match = re.search(r'\b(\d{4,6})\b', score_cell)
+                        if num_match:
+                            try:
+                                val = int(num_match.group(1))
+                                if 1000 <= val <= 200000:
+                                    scores.append(float(val))
+                                    break
+                            except:
+                                pass
+    
+    # 방법 2: 전체 텍스트에서 "Graphics Score" 레이블 근처의 숫자 찾기
+    if len(scores) < 3:
+        text = soup.get_text(" ")
+        # "Graphics Score" 또는 "GPU Score" 다음에 오는 숫자 찾기
+        graphics_patterns = [
+            r"Graphics\s+Score[:\s]*[=]?\s*(\d{4,6})",
+            r"GPU\s+Score[:\s]*[=]?\s*(\d{4,6})",
+            r"Graphics[:\s]*[=]?\s*(\d{4,6})",
+        ]
+        
+        for pattern in graphics_patterns:
+            matches = re.finditer(pattern, text, re.IGNORECASE)
+            for match in matches:
+                # 매칭된 위치 근처(앞뒤 300자)에 GPU 토큰이 있는지 확인
+                start = max(0, match.start() - 300)
+                end = min(len(text), match.end() + 300)
+                context = text[start:end]
+                if token_upper in context.upper():
+                    try:
+                        val = int(match.group(1))
+                        if 1000 <= val <= 200000:
+                            scores.append(float(val))
+                    except:
+                        pass
+    
+    # 방법 3: GPU 모델명 근처의 모든 4-6자리 숫자를 후보로 추출 (더 관대한 방법)
+    if len(scores) < 3:
+        text = soup.get_text(" ")
+        # GPU 토큰 주변(앞뒤 500자)에서 모든 4-6자리 숫자 찾기
+        token_positions = []
+        for match in re.finditer(re.escape(token), text, re.IGNORECASE):
+            token_positions.append(match.start())
+        
+        for pos in token_positions:
+            start = max(0, pos - 500)
+            end = min(len(text), pos + 500)
+            context = text[start:end]
+            # 컨텍스트에서 4-6자리 숫자 찾기
+            nums = re.findall(r'\b(\d{4,6})\b', context)
+            for num_str in nums:
+                try:
+                    val = int(num_str)
+                    if 1000 <= val <= 200000:
+                        scores.append(float(val))
+                except:
+                    pass
+    
+    # 중복 제거 및 정렬
+    scores = sorted(list(set(scores)))
+    
+    # 너무 많은 값이면 상위 100개만 사용
     if len(scores) > 100:
         scores = scores[:100]
+    
     return scores
 
-def _insert_bench(conn, part_id, part_type, model_name, source, test_name, scenario, value, unit, url):
+def _insert_bench(conn, part_id, part_type, model_name, source, test_name, scenario, value, unit, url, metric_name="Score"):
     sql_bench = text("""
         INSERT INTO benchmark_results (
             part_id, part_type, cpu_model, source, test_name, test_version, scenario,
@@ -1253,7 +1398,7 @@ def _insert_bench(conn, part_id, part_type, model_name, source, test_name, scena
         "test_name": test_name,
         "test_version": "",
         "scenario": scenario,
-        "metric_name": "Score",
+        "metric_name": metric_name,
         "value": value,
         "unit": unit,
         "review_url": url
@@ -1284,26 +1429,203 @@ def _normalize_gpu_model(raw_name: str) -> tuple[str, str]:
     return common, (t if isinstance(t, str) else '')
 
 def scrape_3dmark_generic(page, gpu_name, conn, part_id, test_name: str, url: str):
-    """3DMark 랭킹/리더보드 페이지에서 GPU 점수를 수집하고 중앙값을 저장."""
+    """3DMark 필터를 사용하여 GPU Graphics Score의 Average Score를 수집."""
     try:
-        print(f"      -> 3DMark {test_name} 검색: {url}")
-        page.goto(url, wait_until='domcontentloaded', timeout=45000)
-        page.wait_for_timeout(2500)
-        html = page.content()
-        # 점수 후보 추출
-        # 숫자 토큰 기반으로만 검색 (브랜드 제거)
         common_label, token = _normalize_gpu_model(gpu_name)
-        scores = _parse_scores_for_gpu(html, token or gpu_name)
-        if len(scores) < 3:
-            print(f"        -> (정보) 3DMark {test_name} 점수를 충분히 찾지 못했습니다. (수={len(scores)})")
+        if not token:
+            print(f"        -> (정보) 3DMark {test_name} GPU 모델명을 추출할 수 없습니다.")
             return
-        # 트리밍 중앙값
-        median = _trimmed_median(scores, 0.1 if len(scores) >= 10 else 0.0)
-        if median <= 0:
-            print(f"        -> (정보) 3DMark {test_name} 중앙값 계산 실패")
+        
+        print(f"      -> 3DMark {test_name} 검색: {url}")
+        
+        # 테스트 이름을 3DMark 테스트 코드로 변환
+        test_code_mapping = {
+            'Fire Strike': 'fs P',
+            'Time Spy': 'spy P',
+            'Port Royal': 'pr P'
+        }
+        test_code = test_code_mapping.get(test_name)
+        if not test_code:
+            print(f"        -> (정보) 3DMark {test_name} 테스트 코드를 찾을 수 없습니다.")
             return
-        _insert_bench(conn, part_id, "GPU", common_label, "3dmark", test_name, "GPU", median, "pts", url)
-        print(f"        -> 3DMark {test_name} Median: {int(median)} (samples={len(scores)}) [{common_label}]")
+        
+        # 먼저 GPU ID를 찾기 위해 API 호출
+        gpu_id = None
+        try:
+            # GPU 이름으로 검색하여 GPU ID 찾기
+            search_url = f"https://www.3dmark.com/proxycon/ajax/search/gpuname?term={token}"
+            response = requests.get(search_url, timeout=10)
+            if response.status_code == 200:
+                gpu_data = response.json()
+                if isinstance(gpu_data, list) and len(gpu_data) > 0:
+                    # common_label이 포함된 GPU 찾기
+                    for gpu in gpu_data[:10]:  # 최대 10개 확인
+                        gpu_label = gpu.get('label', '')
+                        if token.upper() in gpu_label.upper():
+                            gpu_id = gpu.get('id')
+                            if gpu_id:
+                                print(f"        -> (디버그) GPU ID 발견: {gpu_id} ({gpu_label[:50]})")
+                                break
+        except Exception as e:
+            print(f"        -> (정보) GPU ID 검색 실패: {type(e).__name__}")
+        
+        # URL 파라미터 직접 구성
+        if gpu_id:
+            # URL 해시 파라미터 구성
+            test_param = quote(test_code)
+            search_url_with_params = (
+                f"https://www.3dmark.com/search#advanced?"
+                f"test={test_param}&"
+                f"cpuId=undefined&"
+                f"gpuId={gpu_id}&"
+                f"gpuCount=&"
+                f"gpuType=ALL&"
+                f"deviceType=&"
+                f"storageModel=ALL&"
+                f"modelId=&"
+                f"showRamDisks=false&"
+                f"memoryChannels=&"
+                f"country=&"
+                f"scoreType=graphicsScore&"
+                f"hofMode=false&"
+                f"showInvalidResults=false&"
+                f"freeParams=&"
+                f"minGpuCoreClock=&"
+                f"maxGpuCoreClock=&"
+                f"minGpuMemClock=&"
+                f"maxGpuMemClock=&"
+                f"minCpuClock=&"
+                f"maxCpuClock="
+            )
+            
+            # URL로 직접 이동
+            page.goto(search_url_with_params, wait_until='networkidle', timeout=60000)
+            page.wait_for_timeout(8000)  # AJAX 로딩 대기
+        else:
+            # GPU ID를 찾지 못한 경우 기존 방식 사용
+            main_url = "https://www.3dmark.com/search"
+            page.goto(main_url, wait_until='domcontentloaded', timeout=30000)
+            page.wait_for_timeout(5000)
+            
+            # 고급 검색 모드로 전환
+            try:
+                # URL 해시로 고급 검색 모드 활성화
+                page.evaluate(f"window.location.hash = '#advanced?test={quote(test_code)}&scoreType=graphicsScore'")
+                page.wait_for_timeout(3000)
+            except:
+                pass
+            
+            # Benchmark 필터 선택 (#resultTypeId)
+            try:
+                result_type_select = page.locator('#resultTypeId')
+                result_type_select.wait_for(state='visible', timeout=10000)
+                result_type_select.select_option(value=test_code)
+                page.wait_for_timeout(2000)
+                print(f"        -> (디버그) Benchmark 필터 설정: {test_code}")
+            except Exception as e:
+                print(f"        -> (정보) Benchmark 필터 설정 실패: {type(e).__name__}")
+            
+            # Score 필터에서 Graphics Score 선택 (#scoreType)
+            try:
+                page.wait_for_timeout(2000)  # scoreType이 동적으로 채워지므로 대기
+                score_type_select = page.locator('#scoreType')
+                score_type_select.wait_for(state='visible', timeout=10000)
+                score_type_select.select_option(value='graphicsScore')
+                page.wait_for_timeout(2000)
+                print(f"        -> (디버그) Score 필터 설정: graphicsScore")
+            except Exception as e:
+                print(f"        -> (정보) Score 필터 설정 실패: {type(e).__name__}")
+            
+            # GPU 필터에서 GPU 모델 검색 및 선택 (#gpuName)
+            try:
+                gpu_name_input = page.locator('#gpuName')
+                gpu_name_input.wait_for(state='visible', timeout=10000)
+                gpu_name_input.fill(token)
+                page.wait_for_timeout(3000)  # 자동완성 대기
+                
+                # 자동완성 리스트에서 GPU 선택 (.gpuid-list li.list-item)
+                gpu_list_items = page.locator('.gpuid-list li.list-item')
+                if gpu_list_items.count() > 0:
+                    for i in range(min(gpu_list_items.count(), 10)):
+                        item = gpu_list_items.nth(i)
+                        item_text = item.text_content()
+                        if token.upper() in item_text.upper():
+                            item.click()
+                            page.wait_for_timeout(3000)
+                            print(f"        -> (디버그) GPU 선택: {item_text[:50]}")
+                            break
+            except Exception as e:
+                print(f"        -> (정보) GPU 필터 설정 실패: {type(e).__name__}")
+            
+            # 필터 변경 시 자동으로 검색이 실행되므로 결과 대기
+            page.wait_for_timeout(5000)
+        
+        # Average Score 추출 (#medianScore) - 여러 번 시도
+        avg_score = None
+        for attempt in range(3):  # 최대 3번 시도
+            try:
+                # medianScore 요소가 나타날 때까지 대기
+                median_score_element = page.locator('#medianScore')
+                median_score_element.wait_for(state='visible', timeout=10000)
+                
+                median_text = median_score_element.text_content().strip()
+                if median_text and median_text != 'N/A' and median_text != '':
+                    try:
+                        avg_score = float(median_text.replace(',', ''))
+                        # GPU 모델명(토큰)과 같은 값이면 제외
+                        if avg_score != float(token) and 1000 <= avg_score <= 200000:
+                            print(f"        -> (디버그) Average Score 발견: {int(avg_score)}")
+                            break
+                    except ValueError:
+                        pass
+            except:
+                page.wait_for_timeout(3000)  # 재시도 전 대기
+        
+        if avg_score:
+            # Average Score 저장
+            _insert_bench(conn, part_id, "GPU", common_label, "3dmark", test_name, "GPU", avg_score, "pts", url, metric_name="Graphics Score")
+            print(f"        -> 3DMark {test_name} Graphics Score Average: {int(avg_score)} [{common_label}]")
+            return
+        
+        # 대체 방법: HTML에서 직접 추출
+        html = page.content()
+        soup = BeautifulSoup(html, 'lxml')
+        
+        # #medianScore 요소 찾기
+        median_score_elem = soup.select_one('#medianScore')
+        if median_score_elem:
+            median_text = median_score_elem.get_text(strip=True)
+            if median_text and median_text != 'N/A' and median_text != '':
+                try:
+                    avg_score = float(median_text.replace(',', ''))
+                    if avg_score != float(token) and 1000 <= avg_score <= 200000:
+                        _insert_bench(conn, part_id, "GPU", common_label, "3dmark", test_name, "GPU", avg_score, "pts", url, metric_name="Graphics Score")
+                        print(f"        -> 3DMark {test_name} Graphics Score Average: {int(avg_score)} [{common_label}]")
+                        return
+                except ValueError:
+                    pass
+        
+        # 텍스트 패턴으로 찾기
+        text = soup.get_text(" ")
+        avg_score_patterns = [
+            r"Average\s+score[:\s]+(\d{4,6})",
+            r"Average\s+Score[:\s]+(\d{4,6})",
+        ]
+        
+        for pattern in avg_score_patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                try:
+                    val = int(match.group(1))
+                    if val != int(token) and 1000 <= val <= 200000:
+                        avg_score = float(val)
+                        _insert_bench(conn, part_id, "GPU", common_label, "3dmark", test_name, "GPU", avg_score, "pts", url, metric_name="Graphics Score")
+                        print(f"        -> 3DMark {test_name} Graphics Score Average: {int(avg_score)} [{common_label}]")
+                        return
+                except:
+                    pass
+        
+        print(f"        -> (정보) 3DMark {test_name} Average Score를 찾지 못했습니다.")
     except Exception as e:
         print(f"        -> (경고) 3DMark {test_name} 수집 중 오류: {type(e).__name__} - {str(e)[:100]}")
 
