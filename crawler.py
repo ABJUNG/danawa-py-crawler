@@ -31,11 +31,12 @@ DB_NAME = 'danawa'
 
 # --- 3. 크롤링 카테고리 ---
 CATEGORIES = {
-    #'CPU': 'cpu', 
-    # '쿨러': 'cooler', '메인보드': 'mainboard', 'RAM': 'RAM',
-     '그래픽카드': 'vga'
-    #, 'SSD': 'ssd', 'HDD': 'hdd', 
-    # '케이스': 'pc case', '파워': 'power'
+    # 'CPU': 'cpu', 
+     '쿨러': 'cooler&attribute=687-4017-OR%2C687-4015-OR', 
+    #  '메인보드': 'mainboard', 'RAM': 'RAM',
+    #  '그래픽카드': 'vga'
+    # , 'SSD': 'ssd', 'HDD': 'hdd', 
+    #  '케이스': 'pc case', '파워': 'power'
 }
 
 # --- 5. SQLAlchemy 엔진 생성 ---
@@ -149,6 +150,7 @@ def parse_cpu_specs(name, spec_string):
 
     # 스레드 (복합 스레드 형식 포함, 예: 12+8스레드, 20스레드)
     # --- 여기가 핵심 수정 부분입니다! ---
+    # [수정] \d(숫자) 외에 +(플러스) 기호도 포함할 수 있도록 [\d\+] 사용
     thread_match = re.search(r'([\d\+]+)\s*스레드', full_text)
     if thread_match:
         specs['threads'] = thread_match.group(1).replace(' ', '') + '스레드'
@@ -159,7 +161,7 @@ def parse_cpu_specs(name, spec_string):
         specs['socket'] = '소켓' + socket_match.group(1)
 
     # 코드네임 (괄호 안 형식 우선 추출, 예: (애로우레이크))
-    codename_match = re.search(r'\(([^)]+(?:레이크|릿지|리프레시|라파엘|버미어|라파엘|피카소|세잔|시마다 픽|피닉스|Zen\d+))\)', full_text)
+    codename_match = re.search(r'\(([^)]*(?:레이크|릿지|리프레시|라파엘|버미어|피카소|세잔|시마다 픽|피닉스|Zen\d+)[^)]*)\)', full_text)
     if codename_match:
         specs['codename'] = codename_match.group(1)
         
@@ -183,21 +185,43 @@ def parse_cpu_specs(name, spec_string):
     return specs
 
 def parse_cooler_specs(name, spec_string):
-    """쿨러 파싱 로직 개선"""
+    """쿨러 파싱 로직 개선 (CPU 쿨러 / 시스템 쿨러 구분)"""
     specs = {}
     if name: specs['manufacturer'] = name.split()[0]
     
+    full_text = name + " / " + spec_string
     spec_parts = [part.strip() for part in spec_string.split('/')]
+
+    # 1. 제품 유형 먼저 구분
+    if '시스템 쿨러' in full_text or '시스템 팬' in full_text:
+        specs['product_type'] = '시스템 쿨러'
+    elif 'CPU 쿨러' in full_text:
+        specs['product_type'] = 'CPU 쿨러'
+
     for part in spec_parts:
-        if 'CPU' in part and '쿨러' in part: specs['product_type'] = 'CPU 쿨러'
+        # 2. 공통 스펙
+        if '팬 크기' in part:
+            specs['fan_size'] = part
+        elif '팬 커넥터' in part:
+            specs['fan_connector'] = part
+        
+        # 3. CPU 쿨러 스펙
         elif '공랭' in part: specs['cooling_method'] = '공랭'
         elif '수랭' in part: specs['cooling_method'] = '수랭'
         elif '타워형' in part: specs['air_cooling_form'] = '타워형'
         elif '플라워형' in part: specs['air_cooling_form'] = '플라워형'
         elif '라디에이터' in part and '열' in part: specs['radiator_length'] = part
         elif '쿨러 높이' in part: specs['cooler_height'] = part
-        elif '팬 크기' in part: specs['fan_size'] = part
-        elif '팬 커넥터' in part: specs['fan_connector'] = part
+
+        # 4. 시스템 쿨러 스펙 (팬 개수)
+        elif re.search(r'^\d+개$', part): # '3개', '5개' 같은 패턴
+            specs['fan_count'] = part
+
+    # 5. 이름에서 팬 개수 추론 (e.g., "3IN1", "5PACK")
+    if specs.get('product_type') == '시스템 쿨러' and 'fan_count' not in specs:
+        count_match = re.search(r'(\d)(?:IN1|PACK)', name, re.I)
+        if count_match:
+            specs['fan_count'] = f"{count_match.group(1)}개"
             
     return specs
 
@@ -1629,115 +1653,6 @@ def scrape_3dmark_generic(page, gpu_name, conn, part_id, test_name: str, url: st
     except Exception as e:
         print(f"        -> (경고) 3DMark {test_name} 수집 중 오류: {type(e).__name__} - {str(e)[:100]}")
 
-def scrape_stable_diffusion_lambda(page, gpu_name, conn, part_id):
-    """
-    Lambda Labs GPU Benchmarks에서 SDXL / SD 1.5 images/sec 수집.
-    테이블 구조를 파싱하여 안정성을 높임.
-    """
-    try:
-        base_url = "https://lambdalabs.com/gpu-benchmarks"
-        print(f"      -> Stable Diffusion (Lambda) 검색: {base_url}")
-        page.goto(base_url, wait_until='networkidle', timeout=20000)
-        
-        # 자바스크립트 렌더링을 기다리기 위해 특정 텍스트(표의 내용)가 나타날 때까지 대기
-        try:
-            # 페이지에 'RTX 4090'과 같은 특정 GPU 이름이 나타날 때까지 기다립니다.
-            # 이는 데이터 테이블이 동적으로 로드되었음을 의미합니다.
-            page.locator("text=RTX 4090").wait_for(timeout=15000)
-            print("        -> (디버그) 벤치마크 데이터 렌더링을 확인했습니다.")
-        except Exception:
-            print("        -> (경고) 벤치마크 데이터 렌더링을 기다리는 데 실패했습니다. 계속 진행합니다.")
-        
-        html = page.content()
-        soup = BeautifulSoup(html, 'lxml')
-        
-        common_label, token = _normalize_gpu_model(gpu_name)
-        
-        table = soup.select_one('table.benchmark-table, table.benchmarks, table')
-        if not table:
-            print("        -> (경고) Lambda Labs에서 벤치마크 테이블을 찾지 못했습니다.")
-            return
-
-        # 헤더에서 컬럼 인덱스 찾기 (더 많은 케이스 대응)
-        header_cells = table.select('thead th, thead td')
-        if not header_cells:
-            # thead가 없는 경우, 테이블의 첫 번째 행을 헤더로 간주
-            header_row = table.select_one('tr')
-            if header_row:
-                header_cells = header_row.select('th, td')
-
-        if not header_cells:
-             print("        -> (경고) 테이블 헤더를 찾을 수 없습니다.")
-             return
-
-        gpu_col_idx = -1
-        sdxl_col_idx = -1
-        sd15_col_idx = -1
-
-        for i, cell in enumerate(header_cells):
-            header_text = cell.get_text().lower()
-            if 'gpu' in header_text:
-                gpu_col_idx = i
-            elif 'sdxl' in header_text and ('img/s' in header_text or 'images/sec' in header_text):
-                sdxl_col_idx = i
-            elif 'sd 1.5' in header_text and ('img/s' in header_text or 'images/sec' in header_text):
-                sd15_col_idx = i
-
-        if gpu_col_idx == -1:
-            print("        -> (경고) 테이블에서 'GPU' 컬럼을 찾지 못했습니다.")
-            return
-
-        # 테이블 바디에서 GPU 이름으로 행 찾기
-        rows = table.select('tbody tr')
-        if not rows:
-            # tbody가 없는 경우, 헤더 다음의 모든 tr을 대상으로 함
-            rows = table.select('tr')[1:]
-
-        found_any = False
-        
-        for row in rows:
-            cells = row.select('td')
-            if not cells:
-                cells = row.select('th')
-
-            if len(cells) <= max(gpu_col_idx, sdxl_col_idx if sdxl_col_idx != -1 else 0, sd15_col_idx if sd15_col_idx != -1 else 0):
-                continue
-            
-            row_gpu_name = cells[gpu_col_idx].get_text(strip=True)
-            
-            if common_label.lower() in row_gpu_name.lower():
-                print(f"        -> (디버그) 일치하는 GPU 행 발견: {row_gpu_name}")
-                
-                # SDXL
-                if sdxl_col_idx != -1:
-                    sdxl_text = cells[sdxl_col_idx].get_text(strip=True)
-                    try:
-                        sdxl_val = float(sdxl_text)
-                        _insert_bench(conn, part_id, "GPU", common_label, "lambda", "Stable Diffusion", "SDXL", sdxl_val, "imgs/sec", base_url)
-                        print(f"        -> Stable Diffusion SDXL: {sdxl_val} imgs/sec")
-                        found_any = True
-                    except (ValueError, TypeError):
-                        print(f"        -> (정보) SDXL 점수를 파싱할 수 없습니다: '{sdxl_text}'")
-
-                # SD 1.5
-                if sd15_col_idx != -1:
-                    sd15_text = cells[sd15_col_idx].get_text(strip=True)
-                    try:
-                        sd15_val = float(sd15_text)
-                        _insert_bench(conn, part_id, "GPU", common_label, "lambda", "Stable Diffusion", "SD 1.5", sd15_val, "imgs/sec", base_url)
-                        print(f"        -> Stable Diffusion SD 1.5: {sd15_val} imgs/sec")
-                        found_any = True
-                    except (ValueError, TypeError):
-                        print(f"        -> (정보) SD 1.5 점수를 파싱할 수 없습니다: '{sd15_text}'")
-                
-                if found_any:
-                    break
-        
-        if not found_any:
-            print(f"        -> (정보) Lambda Labs에서 '{common_label}'에 대한 SD 점수를 찾지 못했습니다.")
-
-    except Exception as e:
-        print(f"        -> (경고) Stable Diffusion (Lambda) 수집 중 오류: {type(e).__name__} - {str(e)[:100]}")
 def scrape_3dmark_timespy(page, cpu_name, conn, part_id):
     """
     topcpu.net에서 3DMark Time Spy CPU 점수 수집
@@ -1929,7 +1844,8 @@ def scrape_category(page, category_name, query, collect_reviews=False, collect_b
                                 try: star_rating = float(score_tag.text.strip())
                                 except (ValueError, TypeError): star_rating = 0.0
                     
-                    spec_tag = item.select_one('div.spec_list')
+                    # 🔽 2개의 spec_list 중 전체 스펙이 담긴 'spec-box--full' 내부의 .spec_list를 선택
+                    spec_tag = item.select_one('div.spec-box--full .spec_list')
                     spec_string = spec_tag.text.strip() if spec_tag else ""
                     
                     # --- 3. (수정) 파서 호출 및 보증 기간(warrantyInfo) 추출 ---
@@ -2027,9 +1943,6 @@ def scrape_category(page, category_name, query, collect_reviews=False, collect_b
                                 time.sleep(2)
                                 scrape_3dmark_generic(page, common_label, conn, part_id, 'Port Royal', 'https://www.3dmark.com/search#advanced/pr')
                                 time.sleep(2)
-                                # (3) Stable Diffusion (Lambda Labs)
-                                scrape_stable_diffusion_lambda(page, common_label, conn, part_id)
-                                print(f"      -> GPU 벤치마크 수집 완료.")
 
                             # 2. DB에 저장 (기존)
                             specs_json = json.dumps(detailed_specs, ensure_ascii=False)
