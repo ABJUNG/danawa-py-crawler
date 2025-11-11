@@ -12,7 +12,6 @@ const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8080';
 
 // (FILTER_LABELS, FILTER_ORDER_MAP, generateSpecString 함수는 기존과 동일)
 const FILTER_LABELS = {
-  product_type: '제품 분류',
   manufacturer: '제조사',
   codename: '코드네임',
   cpu_series: 'CPU 시리즈',
@@ -20,72 +19,113 @@ const FILTER_LABELS = {
   socket: '소켓 구분',
   cores: '코어 수',
   threads: '스레드 수',
-  integrated_graphics: '내장그래픽 탑재 여부',
-  // --- 👇 [신규] 벤치마크 라벨 추가 ---
-  bench_cinebench_r23_multi: 'Cinebench R23 (Multi)',
-  bench_cinebench_r23_single: 'Cinebench R23 (Single)',
-  bench_geekbench_6_multi: 'Geekbench 6 (Multi)',
-  bench_geekbench_6_single: 'Geekbench 6 (Single)',
-  bench_blender_median: 'Blender (Median)',
-  bench_3dmark_timespy_cpu: '3DMark Time Spy (CPU)',
+  integrated_graphics: '내장그래픽',
+  
+  // --- 쿨러 스펙 ---
+  product_type: '제품 분류',
   cooling_method: '냉각 방식',
   air_cooling_form: '공랭 형태',
   cooler_height: '쿨러 높이',
   radiator_length: '라디에이터',
   fan_size: '팬 크기',
+  fan_count: '팬 개수',
   fan_connector: '팬 커넥터',
+  max_fan_speed: '최대 팬속도',
+  max_airflow: '최대 풍량',
+  static_pressure: '최대 풍압(정압)',
+  max_fan_noise: '최대 팬소음',
+  tdp: 'TDP',
+  warranty_period: 'A/S 기간',
+  intel_socket: '인텔 소켓',
+  amd_socket: 'AMD 소켓',
+  width: '가로',
+  depth: '세로',
+  height: '높이',
+  weight: '무게',
+  fan_thickness: '팬 두께',
+  fan_bearing: '베어링',
+  pwm_support: 'PWM 지원',
+  led_type: 'LED 타입',
+  operating_voltage: '작동 전압',
+  daisy_chain: '데이지 체인',
+  zero_fan: '제로팬(0-dB)',
+
+  // --- RAM ---
   device_type: '사용 장치',
   product_class: '제품 분류',
   capacity: '메모리 용량',
   ram_count: '램 개수',
-  clock_speed: '동작 클럭(대역폭)',
+  clock_speed: '동작 클럭',
   ram_timing: '램 타이밍',
-  heatsink_presence: '히트싱크',
+  heatsink_presence: '방열판',
+
+  // --- 메인보드 ---
   chipset: '세부 칩셋',
   form_factor: '폼팩터',
   memory_spec: '메모리 종류',
   memory_slots: '메모리 슬롯',
   vga_connection: 'VGA 연결',
   m2_slots: 'M.2',
-  wireless_lan: '무선랜 종류',
+  wireless_lan: '무선랜',
+
+  // --- 그래픽카드 ---
   nvidia_chipset: 'NVIDIA 칩셋',
   amd_chipset: 'AMD 칩셋',
   intel_chipset: '인텔 칩셋',
   gpu_interface: '인터페이스',
   gpu_memory_capacity: '메모리 용량',
   output_ports: '출력 단자',
-  recommended_psu: '권장 파워용량',
-  fan_count: '팬 개수',
+  recommended_psu: '권장 파워',
+  // fan_count: '팬 개수', (쿨러와 중복)
   gpu_length: '가로(길이)',
+
+  // --- SSD ---
+  // form_factor: '폼팩터', (메인보드와 중복)
   ssd_interface: '인터페이스',
   memory_type: '메모리 타입',
   ram_mounted: 'RAM 탑재',
   sequential_read: '순차읽기',
   sequential_write: '순차쓰기',
+
+  // --- HDD ---
   hdd_series: '시리즈 구분',
   disk_capacity: '디스크 용량',
   rotation_speed: '회전수',
   buffer_capacity: '버퍼 용량',
   hdd_warranty: 'A/S 정보',
+
+  // --- 케이스 ---
   case_size: '케이스 크기',
   supported_board: '지원보드 규격',
-  side_panel: '측면 개폐 방식',
+  side_panel: '측면',
   psu_length: '파워 장착 길이',
   vga_length: 'VGA 길이',
   cpu_cooler_height_limit: 'CPU쿨러 높이',
-  
 
+  // --- 파워 ---
   rated_output: '정격출력',
   eighty_plus_cert: '80PLUS인증',
   eta_cert: 'ETA인증',
   cable_connection: '케이블연결',
-  pcie_16pin: 'PCIe 16핀(12+4)',
-
+  pcie_16pin: 'PCIe 16핀',
 };
 
 const FILTER_ORDER_MAP = {
   CPU: ['manufacturer', 'codename', 'cpu_series', 'cpu_class', 'socket', 'cores', 'threads', 'integrated_graphics'],
-  쿨러: ['product_type', 'manufacturer', 'cooling_method', 'air_cooling_form', 'cooler_height', 'radiator_length', 'fan_size', 'fan_connector'],
+  쿨러: [
+    'product_type', 'manufacturer', 'cooling_method', 
+    'air_cooling_form', 'radiator_length', 
+    'tdp', 'warranty_period', 
+    // 호환/크기
+    'intel_socket', 'amd_socket', 
+    'width', 'depth', 'height', 'cooler_height', 'weight',
+    // 팬 스펙
+    'fan_size', 'fan_count', 'fan_thickness', 'fan_connector', 'fan_bearing', 
+    'max_fan_speed', 'max_airflow', 'static_pressure', 'max_fan_noise', 
+    'pwm_support', 'led_type',
+    // 시스템팬 전용
+    'operating_voltage', 'daisy_chain', 'zero_fan'
+  ],
   메인보드: ['manufacturer', 'socket', 'chipset', 'form_factor', 'memory_spec', 'memory_slots', 'vga_connection', 'm2_slots', 'wireless_lan'],
   RAM: ['manufacturer', 'device_type', 'product_class', 'capacity', 'ram_count', 'clock_speed', 'ram_timing', 'heatsink_presence'],
   그래픽카드: ['manufacturer', 'nvidia_chipset', 'amd_chipset', 'intel_chipset', 'gpu_interface', 'gpu_memory_capacity', 'output_ports', 'recommended_psu', 'fan_count', 'gpu_length'],
@@ -97,104 +137,44 @@ const FILTER_ORDER_MAP = {
 
 // --- [수정됨] JSON specs 필드를 파싱하여 스펙 문자열을 생성하는 함수 ---
 const generateSpecString = (part) => {
-  let specs = [];
-  let parsedSpecs = {}; // 1. 빈 스펙 객체 생성
-
-  // 2. part.specs (JSON 문자열)가 존재하면 파싱하여 parsedSpecs 객체에 저장
+  let parsedSpecs = {};
   try {
+    // 백엔드 DTO(PartResponseDto)는 specs를 Map<String, String>으로 보냅니다.
+    // Axios는 이것을 JSON 객체로 자동 변환하므로, JSON.parse()가 필요 없습니다.
     if (part.specs) {
-      parsedSpecs = JSON.parse(part.specs);
+      parsedSpecs = part.specs; 
+    } else {
+      return ''; // 스펙이 없으면 빈 문자열
     }
   } catch (e) {
-    console.error("Failed to parse specs JSON:", e, part.specs);
+    console.error("Failed to read specs object:", e, part.specs);
+    return ''; // 파싱 실패 시
   }
 
-  // 3. part.cores 대신 parsedSpecs.cores (snake_case)에서 데이터를 찾도록 수정
-  // (Python 크롤러가 snake_case로 저장했으므로 snake_case 키를 사용)
-  switch (part.category) {
-    case 'CPU':
-      specs = [
-        parsedSpecs.manufacturer,
-        parsedSpecs.socket,
-        parsedSpecs.cores,
-        parsedSpecs.threads,
-        parsedSpecs.cpu_series, 
-        parsedSpecs.codename
-      ];
-      break;
-    case '쿨러':
-      specs = [
-        parsedSpecs.product_type,
-        parsedSpecs.manufacturer,
-        parsedSpecs.cooling_method, 
-        parsedSpecs.air_cooling_form, 
-        parsedSpecs.fan_size, 
-        parsedSpecs.radiator_length 
-      ];
-      break;
-    case '메인보드':
-      specs = [
-        parsedSpecs.manufacturer,
-        parsedSpecs.socket,
-        parsedSpecs.chipset,
-        parsedSpecs.form_factor, 
-        parsedSpecs.memory_spec 
-      ];
-      break;
-    case 'RAM':
-      specs = [
-        parsedSpecs.manufacturer,
-        parsedSpecs.product_class, 
-        parsedSpecs.capacity,
-        parsedSpecs.clock_speed, 
-        parsedSpecs.ram_timing 
-      ];
-      break;
-    case '그래픽카드':
-      specs = [
-        parsedSpecs.manufacturer,
-        (parsedSpecs.nvidia_chipset || parsedSpecs.amd_chipset || parsedSpecs.intel_chipset), 
-        parsedSpecs.gpu_memory_capacity, 
-        parsedSpecs.gpu_length 
-      ];
-      break;
-    case 'SSD':
-      specs = [
-        parsedSpecs.manufacturer,
-        parsedSpecs.form_factor, 
-        parsedSpecs.ssd_interface, 
-        parsedSpecs.capacity,
-        parsedSpecs.sequential_read 
-      ];
-      break;
-    case 'HDD':
-      specs = [
-        parsedSpecs.manufacturer,
-        parsedSpecs.disk_capacity, 
-        parsedSpecs.rotation_speed, 
-        parsedSpecs.buffer_capacity 
-      ];
-      break;
-    case '케이스':
-      specs = [
-        parsedSpecs.manufacturer,
-        parsedSpecs.case_size, 
-        parsedSpecs.supported_board, 
-        parsedSpecs.cpu_cooler_height_limit, 
-        parsedSpecs.vga_length 
-      ];
-      break;
-    case '파워':
-      specs = [
-        parsedSpecs.manufacturer,
-        parsedSpecs.rated_output, 
-        parsedSpecs.eighty_plus_cert, 
-        parsedSpecs.cable_connection 
-      ];
-      break;
-    default:
-      return '';
+  // 1. 현재 카테고리에 해당하는 스펙 순서(배열)를 FILTER_ORDER_MAP에서 가져옵니다.
+  const specOrder = FILTER_ORDER_MAP[part.category];
+
+  // 2. 스펙 순서가 정의되지 않았으면 빈 문자열 반환
+  if (!specOrder) {
+    return '';
   }
+
+  // 3. 스펙 순서 배열(specOrder)을 순회하며 parsedSpecs에서 값을 찾습니다.
+  const specs = specOrder.map(key => {
+    
+    // [특별 처리] GPU 칩셋 (NVIDIA, AMD, Intel 중 하나만 표시)
+    if (key === 'nvidia_chipset') {
+      return parsedSpecs.nvidia_chipset || parsedSpecs.amd_chipset || parsedSpecs.intel_chipset;
+    }
+    if (key === 'amd_chipset' || key === 'intel_chipset') {
+      return null; // nvidia_chipset에서 이미 처리했으므로 건너뜀
+    }
+
+    // 4. 스펙 값이 존재하면(null, undefined, ""가 아니면) 해당 값을 반환
+    return parsedSpecs[key];
+  });
+
+  // 5. 빈 값(null)을 제거하고 ' / '로 합칩니다.
   return specs.filter(Boolean).join(' / ');
 };
 
@@ -605,30 +585,35 @@ function App() {
               <>
                 <div className="parts-list">
                   {parts.length > 0 ? parts.map(part => {
-                    const specString = generateSpecString(part);
-                    return (
-                      <div key={part.id} className="card-link" onClick={() => handleOpenDetailModal(part)}> 
-                        <div className="part-card">
-                          <img src={part.imgSrc || 'https://img.danawa.com/new/noData/img/noImg_160.gif'} alt={part.name} className="part-image" />
-                          <div className="part-info">
-                            <h2 className="part-name">{part.name}</h2>
-                            {specString && <p className="part-specs">{specString}</p>}
-                            <p className="part-price">{part.price.toLocaleString()}원</p>
-                            <div className="part-reviews">
-                              <span>의견 {part.reviewCount?.toLocaleString() || 0}</span>
-                              <span className="review-divider">|</span>
-                              <span>⭐ {part.starRating || 'N/A'} ({part.ratingReviewCount?.toLocaleString() || 0})</span>
+                      const specString = generateSpecString(part); // 👈 1번에서 수정한 함수가 호출됨
+                      return (
+                        <div key={part.id} className="card-link" onClick={() => handleOpenDetailModal(part)}> 
+                          <div className="part-card">
+                            <img src={part.imgSrc || 'https://img.danawa.com/new/noData/img/noImg_160.gif'} alt={part.name} className="part-image" />
+                            <div className="part-info">
+                              <h2 className="part-name">{part.name}</h2>
+                              
+                              {/* 👈 여기서 쿨러 상세 스펙이 표시됨 */}
+                              {specString && <p className="part-specs">{specString}</p>} 
+                              
+                              <p className="part-price">{part.price.toLocaleString()}원</p>
+                              <div className="part-reviews">
+                                {/* 👈 한글화 확인 */}
+                                <span>의견 {part.reviewCount?.toLocaleString() || 0}</span>
+                                <span className="review-divider">|</span>
+                                <span>⭐ {part.starRating || 'N/A'} ({part.ratingReviewCount?.toLocaleString() || 0})</span>
+                              </div>
+                            </div>
+                            <div className="part-card-footer">
+                              <button onClick={(e) => handleAddToCompare(e, part)} disabled={comparisonList.length >= 3 && !comparisonList.find(p => p.id === part.id)} className={comparisonList.find(p => p.id === part.id) ? 'btn-compare active' : 'btn-compare'}>
+                                {/* 👈 한글화 확인 */}
+                                {comparisonList.find(p => p.id === part.id) ? '✔ 비교 중' : '✚ 비교 담기'}
+                              </button>
                             </div>
                           </div>
-                          <div className="part-card-footer">
-                            <button onClick={(e) => handleAddToCompare(e, part)} disabled={comparisonList.length >= 3 && !comparisonList.find(p => p.id === part.id)} className={comparisonList.find(p => p.id === part.id) ? 'btn-compare active' : 'btn-compare'}>
-                              {comparisonList.find(p => p.id === part.id) ? '✔ 비교 중' : '✚ 비교 담기'}
-                            </button>
-                          </div>
                         </div>
-                      </div>
-                    );
-                  }) : <div className="no-results">검색 결과가 없습니다.</div>}
+                      );
+                    }) : <div className="no-results">검색 결과가 없습니다.</div>}
                 </div>
                 
                 <div className="pagination-container">
