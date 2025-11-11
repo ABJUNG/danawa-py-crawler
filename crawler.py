@@ -31,12 +31,12 @@ DB_NAME = 'danawa'
 
 # --- 3. 크롤링 카테고리 ---
 CATEGORIES = {
-     'CPU': 'cpu', 
-    '쿨러': 'cooler',
-      '메인보드': 'mainboard', 'RAM': 'RAM',
-      '그래픽카드': 'vga'
-     , 'SSD': 'ssd', 'HDD': 'hdd', 
-      '케이스': 'pc case', '파워': 'power'
+    #   'CPU': 'cpu', 
+       '쿨러': 'cooler',
+    #   '메인보드': 'mainboard', 'RAM': 'RAM',
+    #   '그래픽카드': 'vga',
+    #   'SSD': 'ssd', 'HDD': 'hdd', 
+    #   '케이스': 'pc case', '파워': 'power'
 }
 
 # --- 5. SQLAlchemy 엔진 생성 ---
@@ -222,7 +222,11 @@ def parse_cooler_specs(name, spec_string):
     for part in spec_parts:
         # 공통 스펙
         if '팬 크기' in part:
-            specs['fan_size'] = part
+            # [수정] 🔽 '120mm' 같은 값만 추출하도록 정규식 사용
+            fan_size_match = re.search(r'(\d+mm)', part)
+            if fan_size_match:
+                specs['fan_size'] = fan_size_match.group(1) # "120mm"
+            
         elif '팬 커넥터' in part:
             specs['fan_connector'] = part
         
