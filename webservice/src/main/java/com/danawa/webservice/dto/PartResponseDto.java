@@ -7,6 +7,8 @@ import lombok.Getter;
 import java.util.List; // 👈 2. import 추가
 import java.util.stream.Collectors; // 👈 3. import 추가
 import java.util.ArrayList; // 👈 4. import 추가
+import java.util.Map;     // 👈 1. Map import 추가
+import java.util.HashMap; // 👈 2. HashMap import 추가
 
 
 @Getter
@@ -24,7 +26,8 @@ public class PartResponseDto {
     private Float starRating;  // 다나와 별점
 
     // --- Tier 2: 'part_spec' 테이블의 세부 스펙 (JSON 문자열) ---
-    private String specs;
+    // private String specs;
+    private Map<String, String> specs;
 
     // --- Tier 3: 'community_reviews' 테이블의 AI 요약 ---
     private String aiSummary; // AI가 요약한 퀘이사존 리뷰
@@ -51,9 +54,10 @@ public class PartResponseDto {
 
         // 2. PartSpec에서 'specs' (JSON) 정보 가져오기
         // (N+1 문제가 발생할 수 있지만, 우선 작동하도록 구현)
-        if (entity.getPartSpec() != null) {
-            this.specs = entity.getPartSpec().getSpecs();
-        }
+        // if (entity.getPartSpec() != null) {
+        //     this.specs = entity.getPartSpec().getSpecs();
+        // }
+        this.specs = (entity.getPartSpec() != null) ? entity.getPartSpec().getSpecsAsMap() : new HashMap<>();
 
         // 3. CommunityReviews 리스트에서 'aiSummary' 가져오기
         // (N+1 문제가 발생할 수 있지만, 우선 작동하도록 구현)

@@ -6,12 +6,17 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import com.fasterxml.jackson.core.type.TypeReference; // 👈 1. import 추가
+import com.fasterxml.jackson.databind.ObjectMapper; // 👈 2. import 추가
+import java.util.Map; // 👈 3. import 추가
+import java.util.HashMap; // 👈 4. import 추가
+
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @Entity
 public class PartSpec extends BaseTimeEntity { // 1.1에서 만든 BaseTimeEntity 상속
 
-    @Id
+    @Id 
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
@@ -28,5 +33,17 @@ public class PartSpec extends BaseTimeEntity { // 1.1에서 만든 BaseTimeEntit
     public PartSpec(Part part, String specs) {
         this.part = part;
         this.specs = specs;
+    }
+    public Map<String, String> getSpecsAsMap() {
+        if (this.specs == null || this.specs.isBlank()) {
+            return new HashMap<>(); // 비어있으면 빈 맵 반환
+        }
+        try {
+            ObjectMapper objectMapper = new ObjectMapper();
+            return objectMapper.readValue(this.specs, new TypeReference<Map<String, String>>() {});
+        } catch (Exception e) {
+            e.printStackTrace();
+            return new HashMap<>(); // 파싱 실패 시 빈 맵 반환
+        }
     }
 }
