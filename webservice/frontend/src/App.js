@@ -73,11 +73,14 @@ const FILTER_LABELS = {
   psu_length: '파워 장착 길이',
   vga_length: 'VGA 길이',
   cpu_cooler_height_limit: 'CPU쿨러 높이',
+  
+
   rated_output: '정격출력',
   eighty_plus_cert: '80PLUS인증',
   eta_cert: 'ETA인증',
   cable_connection: '케이블연결',
   pcie_16pin: 'PCIe 16핀(12+4)',
+
 };
 
 const FILTER_ORDER_MAP = {

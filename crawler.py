@@ -14,7 +14,7 @@ import statistics
 # 이 부분의 값을 변경하여 크롤러 동작을 제어할 수 있습니다.
 
 # 크롤링할 페이지 수 (예: 2로 설정하면 각 카테고리별로 2페이지까지 수집)
-CRAWL_PAGES = 1 
+CRAWL_PAGES = 1
 
 # 브라우저 창을 띄울지 여부 (True: 숨김, False: 보임 - 디버깅 및 안정성에 유리)
 HEADLESS_MODE = True
@@ -189,35 +189,58 @@ def parse_cooler_specs(name, spec_string):
     specs = {}
     if name: specs['manufacturer'] = name.split()[0]
     
-    full_text = name + " / " + spec_string
     spec_parts = [part.strip() for part in spec_string.split('/')]
+    full_text = name + " / " + spec_string # 이름과 스펙을 함께 사용
 
-    # 1. 제품 유형 먼저 구분
-    if '시스템 쿨러' in full_text or '시스템 팬' in full_text:
-        specs['product_type'] = '시스템 쿨러'
-    elif 'CPU 쿨러' in full_text:
+    # [수정] 1. 'CPU 쿨러'가 명시적으로 있는지 *먼저* 확인합니다.
+    #    (이전 로직은 '시스템 팬'을 먼저 검사하여 '시스템 팬 커넥터'가 있는 CPU 쿨러를 오분류했습니다.)
+    if 'CPU 쿨러' in spec_parts:
         specs['product_type'] = 'CPU 쿨러'
+    elif any(s in spec_parts for s in ['시스템 쿨러', '시스템 팬']):
+        specs['product_type'] = '시스템 쿨러'
+    else:
+        # spec_parts에 명시적 타입이 없는 경우, 이름(name)이나 전체 텍스트에서 추론
+        # (CPU 쿨러가 '시스템 팬 커넥터'를 가질 수 있으므로 "CPU 쿨러"를 우선 검사)
+        if 'CPU 쿨러' in full_text:
+            specs['product_type'] = 'CPU 쿨러'
+        elif '시스템 쿨러' in full_text or '시스템 팬' in full_text:
+            # '시스템 팬 커넥터'가 아닌 '시스템 팬'인지 재확인
+            if '시스템 팬 커넥터' not in full_text:
+                 specs['product_type'] = '시스템 쿨러'
+        else:
+            # 최후의 수단: 스펙 내용으로 추론 (CPU 쿨러 스펙이 보이면 CPU 쿨러로)
+            if any(s in spec_string for s in ['공랭', '수랭', '타워형', '쿨러 높이', '라디에이터']):
+                 specs['product_type'] = 'CPU 쿨러'
+            # 이름에 'FAN'이나 '팬'이 명시적으로 들어가면 시스템 쿨러로 추정
+            elif ' fan' in name.lower() or ' 팬' in name:
+                specs['product_type'] = '시스템 쿨러'
+            else:
+                specs['product_type'] = '기타 쿨러' # M.2 쿨러 등
 
+
+    # [수정] 2. 루프를 돌며 세부 스펙을 파싱합니다.
     for part in spec_parts:
-        # 2. 공통 스펙
+        # 공통 스펙
         if '팬 크기' in part:
             specs['fan_size'] = part
         elif '팬 커넥터' in part:
             specs['fan_connector'] = part
         
-        # 3. CPU 쿨러 스펙
-        elif '공랭' in part: specs['cooling_method'] = '공랭'
-        elif '수랭' in part: specs['cooling_method'] = '수랭'
-        elif '타워형' in part: specs['air_cooling_form'] = '타워형'
-        elif '플라워형' in part: specs['air_cooling_form'] = '플라워형'
-        elif '라디에이터' in part and '열' in part: specs['radiator_length'] = part
-        elif '쿨러 높이' in part: specs['cooler_height'] = part
+        # CPU 쿨러 스펙 (CPU 쿨러일 때만 저장)
+        if specs.get('product_type') == 'CPU 쿨러':
+            if '공랭' in part: specs['cooling_method'] = '공랭'
+            elif '수랭' in part: specs['cooling_method'] = '수랭'
+            elif '타워형' in part: specs['air_cooling_form'] = '타워형'
+            elif '플라워형' in part: specs['air_cooling_form'] = '플라워형'
+            elif '라디에이터' in part and '열' in part: specs['radiator_length'] = part
+            elif '쿨러 높이' in part: specs['cooler_height'] = part
 
-        # 4. 시스템 쿨러 스펙 (팬 개수)
-        elif re.search(r'^\d+개$', part): # '3개', '5개' 같은 패턴
-            specs['fan_count'] = part
+        # 시스템 쿨러 스펙 (시스템 쿨러일 때만 저장)
+        if specs.get('product_type') == '시스템 쿨러':
+            if re.search(r'^\d+개$', part): # '3개', '5개' 같은 패턴
+                specs['fan_count'] = part
 
-    # 5. 이름에서 팬 개수 추론 (e.g., "3IN1", "5PACK")
+    # 이름에서 팬 개수 추론
     if specs.get('product_type') == '시스템 쿨러' and 'fan_count' not in specs:
         count_match = re.search(r'(\d)(?:IN1|PACK)', name, re.I)
         if count_match:
