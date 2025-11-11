@@ -1820,19 +1820,15 @@ def scrape_category(page, category_name, query, collect_reviews=False, collect_b
                 page.wait_for_selector('ul.product_list', timeout=10000)
 
                 # 페이지 스크롤 다운 (기존 로직 유지)
-                # 페이지 스크롤 다운 (기존 로직 유지)
-                # 페이지 스크롤 다운 (기존 로직 유지)
                 for _ in range(3):
                     page.mouse.wheel(0, 1500)
                     page.wait_for_timeout(500) # 스크롤 사이 딜레이
                 
-                # [수정] 'data-original-src' 대기 대신,
-                # 첫 번째 상품 이미지가 'src' 속성을 가지며 'noImg'가 아닌지
-                # JavaScript로 직접 검사하며 대기합니다.
+                # [수정] JavaScript를 직접 검사하는 'page.wait_for_function' 방식으로 되돌립니다.
                 try:
                     print("    -> 이미지 지연 로딩(src/data-original-src) 대기 중...")
 
-                    # (JavaScript 함수)
+                    # (JavaScript 함수 정의)
                     js_condition = """
                     () => {
                         const firstImg = document.querySelector('div.thumb_image img');
@@ -1853,16 +1849,16 @@ def scrape_category(page, category_name, query, collect_reviews=False, collect_b
                     }
                     """
                     
-                    # 5초간 위 JavaScript 함수가 true를 반환할 때까지 대기
-                    page.wait_for_function(js_condition, timeout=5000)
+                    # 10초간 위 JavaScript 함수가 true를 반환할 때까지 대기
+                    page.wait_for_function(js_condition, timeout=10000)
                     
                     print("    -> 이미지 로딩 감지됨. 1초 추가 대기...")
                     # 모든 이미지가 로드될 시간을 추가로 1초 더 줍니다.
-                    page.wait_for_timeout(1000) 
+                    page.wait_for_timeout(1000)
                     
                 except Exception as e:
-                    # 5초간 기다려도 이미지가 로드되지 않으면(타임아웃), 
-                    # 오류를 무시하고 그냥 진행합니다 (일부 이미지가 깨질 수 있음).
+                    # 10초간 기다려도 'src'가 변경되지 않으면(타임아웃), 
+                    # 오류를 무시하고 그냥 진행합니다.
                     print(f"    -> (경고) 이미지 로딩 대기 시간 초과 (무시하고 진행): {e}")
 
                 list_html = page.content()
