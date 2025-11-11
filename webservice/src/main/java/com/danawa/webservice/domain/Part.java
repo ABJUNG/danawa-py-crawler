@@ -44,8 +44,9 @@ public class Part extends BaseTimeEntity {
     private Integer reviewCount;
     private Float starRating;
 
-    // (신규) 1:1 관계 매핑
-    @OneToOne(mappedBy = "part", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    // [수정 후] 🔽
+    @OneToOne(fetch = FetchType.EAGER, cascade = CascadeType.ALL, orphanRemoval = true)
+    @JoinColumn(name = "part_spec_id")
     private PartSpec partSpec;
 
     // (신규) 1:N 관계 매핑
