@@ -14,7 +14,7 @@ import statistics
 # 이 부분의 값을 변경하여 크롤러 동작을 제어할 수 있습니다.
 
 # 크롤링할 페이지 수 (예: 2로 설정하면 각 카테고리별로 2페이지까지 수집)
-CRAWL_PAGES = 1
+CRAWL_PAGES = 5
 
 # 브라우저 창을 띄울지 여부 (True: 숨김, False: 보임 - 디버깅 및 안정성에 유리)
 HEADLESS_MODE = True
@@ -32,7 +32,7 @@ DB_NAME = 'danawa'
 # --- 3. 크롤링 카테고리 ---
 CATEGORIES = {
     # 'CPU': 'cpu', 
-     '쿨러': 'cooler&attribute=687-4017-OR%2C687-4015-OR', 
+    '쿨러': 'cooler',
     #  '메인보드': 'mainboard', 'RAM': 'RAM',
     #  '그래픽카드': 'vga'
     # , 'SSD': 'ssd', 'HDD': 'hdd', 
@@ -193,7 +193,7 @@ def parse_cooler_specs(name, spec_string):
     full_text = name + " / " + spec_string # 이름과 스펙을 함께 사용
 
     # [수정] 1. 'CPU 쿨러'가 명시적으로 있는지 *먼저* 확인합니다.
-    #    (이전 로직은 '시스템 팬'을 먼저 검사하여 '시스템 팬 커넥터'가 있는 CPU 쿨러를 오분류했습니다.)
+    #    (이전 로직은 '시스템 팬'을 먼저 검사하여 '시스템 팬 커넥터'가 있는 CPU 쿨러를 오분류했습니다.)
     if 'CPU 쿨러' in spec_parts:
         specs['product_type'] = 'CPU 쿨러'
     elif any(s in spec_parts for s in ['시스템 쿨러', '시스템 팬']):
@@ -215,7 +215,7 @@ def parse_cooler_specs(name, spec_string):
             elif ' fan' in name.lower() or ' 팬' in name:
                 specs['product_type'] = '시스템 쿨러'
             else:
-                specs['product_type'] = '기타 쿨러' # M.2 쿨러 등
+                 specs['product_type'] = '기타 쿨러' # M.2 쿨러 등
 
 
     # [수정] 2. 루프를 돌며 세부 스펙을 파싱합니다.
@@ -1779,7 +1779,8 @@ def scrape_category(page, category_name, query, collect_reviews=False, collect_b
         ON DUPLICATE KEY UPDATE
             price=VALUES(price), review_count=VALUES(review_count), 
             star_rating=VALUES(star_rating), manufacturer=VALUES(manufacturer), 
-            warranty_info=VALUES(warranty_info)
+            warranty_info=VALUES(warranty_info),
+            img_src=VALUES(img_src)
     """)
     
     # --- 2. (신규) part_specs 테이블 INSERT SQL ---
@@ -1807,7 +1808,11 @@ def scrape_category(page, category_name, query, collect_reviews=False, collect_b
 
     with engine.connect() as conn:
         for page_num in range(1, CRAWL_PAGES + 1): # CRAWL_PAGES 변수 사용하도록 수정
-            url = f'https://search.danawa.com/dsearch.php?query={query}&page={page_num}'
+            if 'query=' in query: # 쿨러처럼 복잡한 쿼리 문자열인 경우
+                url = f'https://search.danawa.com/dsearch.php?{query}&page={page_num}'
+            else: # CPU처럼 단순 키워드인 경우
+                url = f'https://search.danawa.com/dsearch.php?query={query}&page={page_num}'
+
             print(f"--- '{category_name}' 카테고리, {page_num}페이지 목록 수집 ---")
             
             try:
@@ -1815,11 +1820,51 @@ def scrape_category(page, category_name, query, collect_reviews=False, collect_b
                 page.wait_for_selector('ul.product_list', timeout=10000)
 
                 # 페이지 스크롤 다운 (기존 로직 유지)
+                # 페이지 스크롤 다운 (기존 로직 유지)
+                # 페이지 스크롤 다운 (기존 로직 유지)
                 for _ in range(3):
                     page.mouse.wheel(0, 1500)
-                    page.wait_for_timeout(500)
-                page.wait_for_load_state('networkidle', timeout=5000)
+                    page.wait_for_timeout(500) # 스크롤 사이 딜레이
                 
+                # [수정] 'data-original-src' 대기 대신,
+                # 첫 번째 상품 이미지가 'src' 속성을 가지며 'noImg'가 아닌지
+                # JavaScript로 직접 검사하며 대기합니다.
+                try:
+                    print("    -> 이미지 지연 로딩(src/data-original-src) 대기 중...")
+
+                    # (JavaScript 함수)
+                    js_condition = """
+                    () => {
+                        const firstImg = document.querySelector('div.thumb_image img');
+                        if (!firstImg) return false; // 이미지가 아예 없으면 false
+                        
+                        // 1. data-original-src가 채워졌는지 확인 (가장 일반적)
+                        const dataOriginal = firstImg.getAttribute('data-original-src');
+                        if (dataOriginal && (dataOriginal.startsWith('https://') || dataOriginal.startsWith('//'))) {
+                            return true;
+                        }
+                        
+                        // 2. data-original-src가 없고, src 자체가 placeholder가 아닌지 확인
+                        if (!dataOriginal && firstImg.src && !firstImg.src.includes('noImg_160')) {
+                            return true;
+                        }
+                        
+                        return false; // 아직 로딩 중
+                    }
+                    """
+                    
+                    # 5초간 위 JavaScript 함수가 true를 반환할 때까지 대기
+                    page.wait_for_function(js_condition, timeout=5000)
+                    
+                    print("    -> 이미지 로딩 감지됨. 1초 추가 대기...")
+                    # 모든 이미지가 로드될 시간을 추가로 1초 더 줍니다.
+                    page.wait_for_timeout(1000) 
+                    
+                except Exception as e:
+                    # 5초간 기다려도 이미지가 로드되지 않으면(타임아웃), 
+                    # 오류를 무시하고 그냥 진행합니다 (일부 이미지가 깨질 수 있음).
+                    print(f"    -> (경고) 이미지 로딩 대기 시간 초과 (무시하고 진행): {e}")
+
                 list_html = page.content()
                 list_soup = BeautifulSoup(list_html, 'lxml')
                 product_items = list_soup.select('li.prod_item[id^="productItem"]')

@@ -12,6 +12,7 @@ const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8080';
 
 // (FILTER_LABELS, FILTER_ORDER_MAP, generateSpecString 함수는 기존과 동일)
 const FILTER_LABELS = {
+  product_type: '제품 분류',
   manufacturer: '제조사',
   codename: '코드네임',
   cpu_series: 'CPU 시리즈',
@@ -27,7 +28,6 @@ const FILTER_LABELS = {
   bench_geekbench_6_single: 'Geekbench 6 (Single)',
   bench_blender_median: 'Blender (Median)',
   bench_3dmark_timespy_cpu: '3DMark Time Spy (CPU)',
-  product_type: '제품 분류',
   cooling_method: '냉각 방식',
   air_cooling_form: '공랭 형태',
   cooler_height: '쿨러 높이',
@@ -85,7 +85,7 @@ const FILTER_LABELS = {
 
 const FILTER_ORDER_MAP = {
   CPU: ['manufacturer', 'codename', 'cpu_series', 'cpu_class', 'socket', 'cores', 'threads', 'integrated_graphics'],
-  쿨러: ['manufacturer', 'product_type', 'cooling_method', 'air_cooling_form', 'cooler_height', 'radiator_length', 'fan_size', 'fan_connector'],
+  쿨러: ['product_type', 'manufacturer', 'cooling_method', 'air_cooling_form', 'cooler_height', 'radiator_length', 'fan_size', 'fan_connector'],
   메인보드: ['manufacturer', 'socket', 'chipset', 'form_factor', 'memory_spec', 'memory_slots', 'vga_connection', 'm2_slots', 'wireless_lan'],
   RAM: ['manufacturer', 'device_type', 'product_class', 'capacity', 'ram_count', 'clock_speed', 'ram_timing', 'heatsink_presence'],
   그래픽카드: ['manufacturer', 'nvidia_chipset', 'amd_chipset', 'intel_chipset', 'gpu_interface', 'gpu_memory_capacity', 'output_ports', 'recommended_psu', 'fan_count', 'gpu_length'],
@@ -124,6 +124,7 @@ const generateSpecString = (part) => {
       break;
     case '쿨러':
       specs = [
+        parsedSpecs.product_type,
         parsedSpecs.manufacturer,
         parsedSpecs.cooling_method, 
         parsedSpecs.air_cooling_form, 
