@@ -14,7 +14,7 @@ import statistics
 # 이 부분의 값을 변경하여 크롤러 동작을 제어할 수 있습니다.
 
 # 크롤링할 페이지 수 (예: 2로 설정하면 각 카테고리별로 2페이지까지 수집)
-CRAWL_PAGES = 5
+CRAWL_PAGES = 1
 
 # 브라우저 창을 띄울지 여부 (True: 숨김, False: 보임 - 디버깅 및 안정성에 유리)
 HEADLESS_MODE = True
@@ -31,12 +31,12 @@ DB_NAME = 'danawa'
 
 # --- 3. 크롤링 카테고리 ---
 CATEGORIES = {
-    # 'CPU': 'cpu', 
+     'CPU': 'cpu', 
     '쿨러': 'cooler',
-    #  '메인보드': 'mainboard', 'RAM': 'RAM',
-    #  '그래픽카드': 'vga'
-    # , 'SSD': 'ssd', 'HDD': 'hdd', 
-    #  '케이스': 'pc case', '파워': 'power'
+      '메인보드': 'mainboard', 'RAM': 'RAM',
+      '그래픽카드': 'vga'
+     , 'SSD': 'ssd', 'HDD': 'hdd', 
+      '케이스': 'pc case', '파워': 'power'
 }
 
 # --- 5. SQLAlchemy 엔진 생성 ---
@@ -1819,98 +1819,121 @@ def scrape_category(page, category_name, query, collect_reviews=False, collect_b
                 page.goto(url, wait_until='load', timeout=20000)
                 page.wait_for_selector('ul.product_list', timeout=10000)
 
-                # 페이지 스크롤 다운 (기존 로직 유지)
-                for _ in range(3):
+                # [수정] 스크롤 로직 강화 (횟수 5, 대기 1초)
+                print("      -> 스크롤 다운 (5회)...")
+                for _ in range(5):
                     page.mouse.wheel(0, 1500)
-                    page.wait_for_timeout(500) # 스크롤 사이 딜레이
+                    page.wait_for_timeout(1000) # 👈 스크롤 후 대기 시간 증가
                 
-                # [수정] JavaScript를 직접 검사하는 'page.wait_for_function' 방식으로 되돌립니다.
+                # [수정] networkidle 대기 시간 증가
                 try:
-                    print("    -> 이미지 지연 로딩(src/data-original-src) 대기 중...")
-
-                    # (JavaScript 함수 정의)
-                    js_condition = """
-                    () => {
-                        const firstImg = document.querySelector('div.thumb_image img');
-                        if (!firstImg) return false; // 이미지가 아예 없으면 false
-                        
-                        // 1. data-original-src가 채워졌는지 확인 (가장 일반적)
-                        const dataOriginal = firstImg.getAttribute('data-original-src');
-                        if (dataOriginal && (dataOriginal.startsWith('https://') || dataOriginal.startsWith('//'))) {
-                            return true;
-                        }
-                        
-                        // 2. data-original-src가 없고, src 자체가 placeholder가 아닌지 확인
-                        if (!dataOriginal && firstImg.src && !firstImg.src.includes('noImg_160')) {
-                            return true;
-                        }
-                        
-                        return false; // 아직 로딩 중
-                    }
-                    """
-                    
-                    # 10초간 위 JavaScript 함수가 true를 반환할 때까지 대기
-                    page.wait_for_function(js_condition, timeout=10000)
-                    
-                    print("    -> 이미지 로딩 감지됨. 1초 추가 대기...")
-                    # 모든 이미지가 로드될 시간을 추가로 1초 더 줍니다.
-                    page.wait_for_timeout(1000)
-                    
+                    page.wait_for_load_state('networkidle', timeout=10000)
                 except Exception as e:
-                    # 10초간 기다려도 'src'가 변경되지 않으면(타임아웃), 
-                    # 오류를 무시하고 그냥 진행합니다.
-                    print(f"    -> (경고) 이미지 로딩 대기 시간 초과 (무시하고 진행): {e}")
+                    print(f"      -> (경고) networkidle 대기 시간 초과 (무시하고 진행): {type(e).__name__}")
 
-                list_html = page.content()
-                list_soup = BeautifulSoup(list_html, 'lxml')
-                product_items = list_soup.select('li.prod_item[id^="productItem"]')
-
-                if not product_items:
+                # --- [핵심 수정] ---
+                # BeautifulSoup(page.content()) 대신 Playwright Locator 사용
+                
+                # 1. 모든 상품 아이템의 'locator'를 가져옵니다.
+                product_items_loc = page.locator('li.prod_item[id^="productItem"]')
+                
+                # 2. 최소 1개의 아이템이 로드될 때까지 기다립니다.
+                try:
+                    product_items_loc.first.wait_for(timeout=10000)
+                except Exception:
+                    print("      -> (경고) 상품 아이템(li.prod_item)을 기다렸지만 로드되지 않았습니다.")
+                    
+                item_count = product_items_loc.count()
+                if item_count == 0:
                     print("--- 현재 페이지에 상품이 없어 다음 카테고리로 넘어갑니다. ---")
                     break
                 
-                for item in product_items:
-                    name_tag = item.select_one('p.prod_name > a')
-                    price_tag = item.select_one('p.price_sect > a > strong')
-                    img_tag = item.select_one('div.thumb_image img')
+                print(f"      -> {item_count}개 상품 아이템(locator) 감지. 파싱 시작...")
 
-                    if not all([name_tag, price_tag, img_tag]):
-                        continue
-
-                    name = name_tag.text.strip()
-                    link = name_tag['href']
+                # 3. BeautifulSoup 루프 대신 locator 루프 사용
+                for i in range(item_count):
+                    item_loc = product_items_loc.nth(i)
                     
-                    img_src = img_tag.get('data-original-src') or img_tag.get('src', '')
-                    if img_src and not img_src.startswith('https:'):
-                        img_src = 'https:' + img_src
-
+                    # 4. Locator를 사용하여 각 요소를 추출 (이 과정에서 Playwright가 자동으로 대기함)
                     try:
-                        price = int(price_tag.text.strip().replace(',', ''))
-                    except ValueError:
-                        print(f"  - 가격 정보가 유효하지 않아 건너뜁니다: {name} (값: {price_tag.text.strip()})")
+                        name_tag_loc = item_loc.locator('p.prod_name > a')
+                        
+                        # [수정] 🔽 'a > strong' 대신 'a' 자체를 찾고, 그 안의 첫 번째 strong을 찾도록 변경
+                        price_tag_loc = item_loc.locator('p.price_sect > a').first.locator('strong').first
+                        
+                        # [수정] 🔽 'img' 대신 '옵션마크' 이미지를 제외하는 클래스 선택자 사용
+                        # 'img.lazyload' (지연 로딩 이미지) 또는 '옵션마크'가 아닌 첫번째 img
+                        img_tag_loc = item_loc.locator('div.thumb_image img.lazyload, div.thumb_image img:not([alt*="옵션마크"])').first
+                        
+                        name = name_tag_loc.inner_text(timeout=5000)
+                        link = name_tag_loc.get_attribute('href', timeout=5000)
+                        
+                        # [수정] 🔽 .first를 이미 위에서 사용했으므로 여기서는 제거
+                        price_text = price_tag_loc.inner_text(timeout=5000)
+                        if '가격비교예정' in price_text or not price_text:
+                            print(f"  - (정보) {name} (가격 정보 없음, 건너뜀)")
+                            continue
+                            
+                        price = int(price_text.strip().replace(',', ''))
+                        
+                        # [수정] 🔽 .first를 이미 위에서 사용했으므로 여기서는 제거
+                        img_src = img_tag_loc.get_attribute('data-src', timeout=2000) or \
+                                  img_tag_loc.get_attribute('data-original-src', timeout=2000) or \
+                                  img_tag_loc.get_attribute('src', timeout=2000)
+
+                        if img_src and not img_src.startswith('https:'):
+                            img_src = 'https:' + img_src
+                        
+                        # noimg가 저장되는 것을 방지
+                        if 'noImg' in (img_src or ''):
+                            print(f"  - (경고) {name} (이미지 로드 실패, noImg 건너뜀)")
+                            continue
+
+                    except Exception as e:
+                        print(f"  - (오류) 상품 기본 정보(이름/가격/이미지) 추출 실패: {e}")
                         continue
-                    
-                    # 리뷰, 별점 수집 (기존 로직 유지)
+
+                    # --- [수정] Locator를 사용하여 리뷰/별점 추출 ---
                     review_count = 0
                     star_rating = 0.0
-                    rating_review_count = 0 # (참고: 이 값은 현재 DB에 저장되지 않음)
-
-                    meta_items = item.select('.prod_sub_meta .meta_item')
-                    for meta in meta_items:
-                        if '상품의견' in meta.text:
-                            count_tag = meta.select_one('.dd strong')
-                            if count_tag and (match := re.search(r'[\d,]+', count_tag.text)):
-                                review_count = int(match.group().replace(',', ''))
+                    meta_items_loc = item_loc.locator('.prod_sub_meta .meta_item')
+                    meta_count = meta_items_loc.count()
+                    for j in range(meta_count):
+                        meta_text = ""
+                        try:
+                            meta_text = meta_items_loc.nth(j).inner_text(timeout=1000)
+                        except Exception:
+                            continue
+                            
+                        if '상품의견' in meta_text:
+                            count_tag_loc = meta_items_loc.nth(j).locator('.dd strong')
+                            if count_tag_loc.count() > 0:
+                                count_text = count_tag_loc.inner_text(timeout=1000)
+                                if (match := re.search(r'[\d,]+', count_text)):
+                                    review_count = int(match.group().replace(',', ''))
                         
-                        elif '상품리뷰' in meta.text:
-                            score_tag = meta.select_one('.text__score')
-                            if score_tag:
-                                try: star_rating = float(score_tag.text.strip())
+                        elif '상품리뷰' in meta_text:
+                            score_tag_loc = meta_items_loc.nth(j).locator('.text__score')
+                            if score_tag_loc.count() > 0:
+                                try: star_rating = float(score_tag_loc.inner_text(timeout=1000).strip())
                                 except (ValueError, TypeError): star_rating = 0.0
+
+                    # --- [수정] Locator를 사용하여 스펙 문자열 추출 ---
+                    spec_string = ""
+                    try:
+                        # '전체 스펙'을 우선 시도
+                        spec_tag_loc = item_loc.locator('div.spec-box--full .spec_list')
+                        spec_string = spec_tag_loc.inner_text(timeout=2000)
+                    except Exception:
+                        try:
+                            # '전체 스펙'이 없으면 '요약 스펙'이라도 가져옴
+                            spec_tag_loc_fallback = item_loc.locator('div.spec_list').first
+                            spec_string = spec_tag_loc_fallback.inner_text(timeout=1000)
+                        except Exception:
+                            print(f"  - (경고) {name} (스펙 정보 없음)")
                     
-                    # 🔽 2개의 spec_list 중 전체 스펙이 담긴 'spec-box--full' 내부의 .spec_list를 선택
-                    spec_tag = item.select_one('div.spec-box--full .spec_list')
-                    spec_string = spec_tag.text.strip() if spec_tag else ""
+                    spec_string = spec_string.strip()
+                    # --- [수정] 완료 ---
                     
                     # --- 3. (수정) 파서 호출 및 보증 기간(warrantyInfo) 추출 ---
                     parser_func = PARSER_MAP.get(category_name)
@@ -2042,10 +2065,10 @@ def scrape_category(page, category_name, query, collect_reviews=False, collect_b
                         # --- 👇 [수정 4] "오류" 로그 수정 및 들여쓰기 추가 ---
                         print(f"    [처리 오류] {name} 저장 중 오류 발생: {e}") 
 
-                    # --- 👇 [필수] 상품 1개만 테스트하기 위해 break 추가 ---
-                        print("\n--- [테스트] 상품 1개 처리 완료, 크롤러를 중단합니다. ---")
-                        break
-                        # --- 👆 [필수] ---
+                    # # --- 👇 [필수] 상품 1개만 테스트하기 위해 break 추가 ---
+                    #     print("\n--- [테스트] 상품 1개 처리 완료, 크롤러를 중단합니다. ---")
+                    #     break
+                    #     # --- 👆 [필수] ---
 
             except Exception as e:
                 print(f"--- {page_num}페이지 처리 중 오류 발생: {e}. 다음 페이지로 넘어갑니다. ---")
@@ -2167,15 +2190,6 @@ def scrape_quasarzone_reviews(page, conn, sql_review, part_id, part_name, catego
         if not search_keyword:
             print(f"        -> (정보) '{part_name}'에 대한 핵심 키워드 추출 불가, 건너뜀.") # 6칸 -> 8칸
             return
-
-        # --- 👇 [수정] 이 'try...except' 블록 전체를 삭제하거나 주석 처리합니다. ---
-        # try:
-        #     print(f"      -> (봇 우회) 퀘이사존 메인 리뷰 페이지 방문 시도...")
-        #     page.goto("https://quasarzone.com/bbs/qc_qsz", wait_until='networkidle', timeout=10000)
-        #     page.wait_for_timeout(1000) # 1초 대기
-        # except Exception as e:
-        #     print(f"      -> (경고) 메인 페이지 방문 실패 (무시하고 계속): {e}")
-        # --- [수정] 여기까지 ---
 
         # 단일 검색 실행: 공식기사(칼럼/리뷰) 그룹 제목검색 1회만 수행
         q_url = (
