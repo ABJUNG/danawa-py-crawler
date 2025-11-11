@@ -51,8 +51,10 @@ public class PartResponseDto {
 
         // 2. PartSpec에서 'specs' (JSON) 정보 가져오기
         // (N+1 문제가 발생할 수 있지만, 우선 작동하도록 구현)
-        if (entity.getPartSpec() != null) {
+        if (entity.getPartSpec() != null && entity.getPartSpec().getSpecs() != null) {
             this.specs = entity.getPartSpec().getSpecs();
+        } else {
+            this.specs = "{}"; // null 대신 빈 JSON 객체 문자열 할당
         }
 
         // 3. CommunityReviews 리스트에서 'aiSummary' 가져오기
