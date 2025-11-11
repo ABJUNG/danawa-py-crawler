@@ -31,12 +31,15 @@ DB_NAME = 'danawa'
 
 # --- 3. 크롤링 카테고리 ---
 CATEGORIES = {
-       'CPU': 'cpu', 
-       '쿨러': 'cooler&attribute=687-4015-OR%2C687-4017-OR',
-       '메인보드': 'mainboard', 'RAM': 'RAM',
-       '그래픽카드': 'vga',
-       'SSD': 'ssd', 'HDD': 'hdd', 
-       '케이스': 'pc case', '파워': 'power'
+    #    'CPU': 'cpu', 
+    #    '쿨러': 'cooler&attribute=687-4015-OR%2C687-4017-OR',
+    #    '메인보드': 'mainboard',
+    #    'RAM': 'RAM',
+    #    '그래픽카드': 'vga',
+        'SSD': 'ssd',
+        'HDD': 'hdd', 
+        '케이스': 'pc case',
+        '파워': 'power'
 }
 
 # --- 5. SQLAlchemy 엔진 생성 ---
@@ -320,120 +323,500 @@ def parse_cooler_specs(name, spec_string):
     return specs
 
 def parse_motherboard_specs(name, spec_string):
-    """메인보드 파싱 로직 개선"""
+    """메인보드 파싱 로직 개선 (사용자 요청 스펙 모두 반영)"""
     specs = {}
     if name: specs['manufacturer'] = name.split()[0]
 
+    # '/'로 나뉜 기본 스펙 리스트
     spec_parts = [part.strip() for part in spec_string.split('/')]
+    
+    # 원본 스펙 문자열 (복잡한 파싱용)
+    full_text = " / ".join(spec_parts)
+
+    # --- 1. 기본 스펙 (루프 파싱) ---
     for part in spec_parts:
         part_no_keyword = part.replace('CPU 소켓:','').strip()
-        if '소켓' in part: specs['socket'] = part_no_keyword
-        # 칩셋 (예: B760, X670) 패턴
-        elif re.search(r'^[A-Z]\d{3}[A-Z]*$', part): specs['chipset'] = part
-        # 폼팩터
-        elif 'ATX' in part or 'ITX' in part: specs['form_factor'] = part
-        # 메모리 종류
-        elif 'DDR' in part: specs['memory_spec'] = part
-        elif '메모리 슬롯' in part: specs['memory_slots'] = part
-        elif 'VGA 연결' in part or 'PCIe' in part: specs['vga_connection'] = part
-        elif 'M.2' in part: specs['m2_slots'] = part
-        elif '무선랜' in part or 'Wi-Fi' in part: specs['wireless_lan'] = part
+        
+        if '소켓' in part and 'CPU 소켓' in part: 
+            specs['socket'] = part_no_keyword
+        elif re.search(r'^[A-Z]\d{3}[A-Z]*$', part): 
+            specs['chipset'] = part
+        elif 'ATX' in part or 'ITX' in part: 
+            specs['form_factor'] = part
+        elif 'DDR' in part: 
+            specs['memory_spec'] = part
+        elif 'VGA 연결' in part or 'PCIe' in part and 'vga_connection' not in specs: 
+            specs['vga_connection'] = part
+        elif '메모리 슬롯' in part: 
+            specs['memory_slots'] = part
+        elif 'M.2:' in part: 
+            specs['m2_slots'] = part.split(':')[-1].strip()
+        elif 'SATA3:' in part:
+            specs['sata3_ports'] = part.split(':')[-1].strip()
+        elif 'ch(' in part or '.1ch' in part:
+            specs['audio_channels'] = part
+        elif '무선랜' in part or 'Wi-Fi' in part: 
+            specs['wireless_lan'] = 'Y' # 존재 여부
+        elif '블루투스' in part:
+            specs['bluetooth'] = 'Y' # 존재 여부
+
+    # --- 2. 정규식을 이용한 상세 스펙 추출 (전체 텍스트 기반) ---
+    
+    # 전원부
+    if (m := re.search(r'전원부:\s*([\d\+\s]+페이즈)', full_text)):
+        specs['power_phases'] = m.group(1)
+        
+    # 메모리
+    if (m := re.search(r'(\d+)MHz\s*\((PC\d-[\d]+)\)', full_text)):
+        specs['memory_clock'] = m.group(1) + 'MHz'
+    if (m := re.search(r'메모리 용량:\s*(최대 [\d,]+GB)', full_text)):
+        specs['memory_capacity_max'] = m.group(1)
+    if 'XMP' in full_text: specs['memory_profile_xmp'] = 'Y'
+    if 'EXPO' in full_text: specs['memory_profile_expo'] = 'Y'
+
+    # 확장슬롯
+    if (m := re.search(r'PCIe버전:\s*([\w\d\.,\s]+)', full_text)):
+        specs['pcie_versions'] = m.group(1).strip().rstrip(',')
+    if (m := re.search(r'PCIex16:\s*(\d+개)', full_text)):
+        specs['pciex16_slots'] = m.group(1)
+    if (m := re.search(r'PCIex1:\s*([\d+]+개)', full_text)):
+        specs['pciex1_slots'] = m.group(1)
+
+    # 저장장치
+    if (m := re.search(r'M.2 연결:\s*([\w\d\.,\s]+)', full_text)):
+        specs['m2_interface'] = m.group(1).strip().rstrip(',')
+
+    # 후면단자 (항목별 존재 여부 및 개수)
+    if (m := re.search(r'후면단자:\s*([^\/]+(?:\s*\/[^\/]+)*)', full_text)):
+        rear_io_text = m.group(1)
+        if 'HDMI' in rear_io_text: specs['rear_io_hdmi'] = 'Y'
+        if 'DP' in rear_io_text: specs['rear_io_dp'] = 'Y'
+        if 'USB 3' in rear_io_text: specs['rear_io_usb3'] = 'Y'
+        if 'USB 2.0' in rear_io_text: specs['rear_io_usb2'] = 'Y'
+        if 'RJ-45' in rear_io_text: specs['rear_io_rj45'] = 'Y'
+        if '오디오잭' in rear_io_text: specs['rear_io_audio'] = 'Y'
+        if 'PS/2' in rear_io_text: specs['rear_io_ps2'] = 'Y'
+        if 'BIOS플래시백' in rear_io_text: specs['rear_io_bios_flashback'] = 'Y'
             
+    if (m := re.search(r'USB A타입:\s*(\d+개)', full_text)):
+        specs['rear_io_usb_a'] = m.group(1)
+    if (m := re.search(r'USB C타입:\s*(\d+개)', full_text)):
+        specs['rear_io_usb_c'] = m.group(1)
+
+    # 랜/오디오
+    if (m := re.search(r'유선랜 칩셋:\s*([\w\s]+)', full_text)):
+        specs['lan_chipset'] = m.group(1).strip()
+    if (m := re.search(r'([\d\.]+)Gbps', full_text)):
+        specs['lan_speed'] = m.group(1) + 'Gbps'
+    if (m := re.search(r'RJ-45:\s*(\d+개)', full_text)):
+        specs['rj45_ports'] = m.group(1)
+    if (m := re.search(r'오디오 칩셋:\s*([\w\s]+)', full_text)):
+        specs['audio_chipset'] = m.group(1).strip()
+
+    # 내부 I/O
+    if 'USB3.0 헤더' in full_text: specs['internal_io_usb3'] = 'Y'
+    if 'USB2.0 헤더' in full_text: specs['internal_io_usb2'] = 'Y'
+    if 'USB3.0 Type C 헤더' in full_text: specs['internal_io_usb_c'] = 'Y'
+    if 'RGB 12V 4핀 헤더' in full_text: specs['internal_io_rgb_12v'] = 'Y'
+    if 'ARGB 5V 3핀 헤더' in full_text: specs['internal_io_argb_5v'] = 'Y'
+    if (m := re.search(r'시스템팬 4핀:\s*(\d+개)', full_text)):
+        specs['internal_io_sys_fan'] = m.group(1)
+    if 'TPM 헤더' in full_text: specs['internal_io_tpm'] = 'Y'
+    if '프론트오디오AAFP 헤더' in full_text: specs['internal_io_audio'] = 'Y'
+
+    # 특징
+    if '전원부 방열판' in full_text: specs['feature_vr_heatsink'] = 'Y'
+    if 'M.2 히트싱크' in full_text: specs['feature_m2_heatsink'] = 'Y'
+    if 'UEFI' in full_text: specs['feature_uefi'] = 'Y'
+    if (m := re.search(r'(\d{2}년 \d{1,2}월부로.*)', full_text)):
+        specs['product_note'] = m.group(1)
+
     return specs
 
 def parse_ram_specs(name, spec_string):
-    """RAM 파싱 로직 개선"""
+    """RAM 파싱 로직 개선 (사용자 요청 스펙 모두 반영)"""
     specs = {}
     if name: specs['manufacturer'] = name.split()[0]
+    
     spec_parts = [part.strip() for part in spec_string.split('/')]
+    full_text = " / ".join(spec_parts) # LED 시스템 등 '/'로 분리 안되는 스펙 검사용
+
     for part in spec_parts:
-        if '데스크탑용' in part or '노트북용' in part: specs['device_type'] = part
-        elif re.match(r'^DDR\d+$', part): specs['product_class'] = part
-        elif re.search(r'^\d+GB$|^\d+TB$', part): specs['capacity'] = part
-        elif re.search(r'^\d+개$', part): specs['ram_count'] = part
-        elif 'MHz' in part: specs['clock_speed'] = part
-        elif 'CL' in part: specs['ram_timing'] = part
-        elif '방열판' in part: specs['heatsink_presence'] = part
+        # --- 1. 기본 스펙 ---
+        if '데스크탑용' in part or '노트북용' in part: 
+            specs['device_type'] = part
+        elif re.match(r'^DDR\d+$', part): 
+            specs['product_class'] = part
+        elif re.search(r'^\d+GB$|^\d+TB$', part) and 'capacity' not in specs: 
+            specs['capacity'] = part
+        
+        # --- 2. 상세 스펙 (사용자 요청 기준) ---
+        
+        # 클럭
+        elif (m := re.search(r'(\d+MHz)\s*\((PC\d-[\d]+)\)', part)):
+            specs['clock_speed'] = m.group(1)
+            specs['pc_clock_speed'] = m.group(2)
+        elif 'MHz' in part and 'clock_speed' not in specs:
+            specs['clock_speed'] = part
+        
+        # 램타이밍
+        elif '램타이밍:' in part:
+            specs['ram_timing'] = part.split(':')[-1].strip()
+        
+        # 전압
+        elif (m := re.search(r'([\d\.]+)V$', part)):
+            specs['voltage'] = m.group(1) + 'V'
+            
+        # 램개수
+        elif '램개수:' in part:
+            specs['ram_count'] = part.split(':')[-1].strip()
+        
+        # LED
+        elif 'LED 라이트' in part:
+            specs['led_light'] = 'Y'
+        elif 'LED색상:' in part:
+            specs['led_color'] = part.split(':')[-1].strip()
+
+        # 프로파일
+        elif 'XMP' in part: # XMP3.0, XMP 등
+            specs['memory_profile_xmp'] = 'Y'
+        elif 'EXPO' in part:
+            specs['memory_profile_expo'] = 'Y'
+        
+        # 기타
+        elif '온다이ECC' in part:
+            specs['on_die_ecc'] = 'Y'
+        
+        # 방열판
+        elif '히트싱크:' in part:
+            specs['heatsink_presence'] = part.split(':')[-1].strip()
+        elif '방열판 색상:' in part:
+            specs['heatsink_color'] = part.split(':')[-1].strip()
+        elif '방열판' in part and 'heatsink_presence' not in specs: # '방열판'만 있는 경우
+            specs['heatsink_presence'] = 'Y'
+            
+        # 높이
+        elif '높이:' in part:
+            specs['height'] = part.split(':')[-1].strip()
+            
+        # 모듈제조사
+        elif '모듈제조사:' in part:
+            specs['module_manufacturer'] = part.split(':')[-1].strip()
+
+    # --- 3. 전체 텍스트 기반 스펙 (LED 시스템) ---
+    if (m := re.search(r'LED 시스템:\s*([^\/]+)', full_text)):
+        specs['led_system'] = m.group(1).strip()
 
     return specs
 
 def parse_vga_specs(name, spec_string):
-    """그래픽카드 파싱 로직 개선"""
+    """그래픽카드 파싱 로직 개선 (사용자 요청 스펙 모두 반영)"""
     specs = {}
     if name: specs['manufacturer'] = name.split()[0]
+    
     spec_parts = [part.strip() for part in spec_string.split('/')]
+    full_text = " / ".join(spec_parts) # '/'로 분리 안되는 스펙 검사용
+
+    # --- 1. 기본 스펙 (루프 파싱) ---
     for part in spec_parts:
-        if 'RTX' in part or 'GTX' in part: specs['nvidia_chipset'] = part
-        elif 'RX' in part: specs['amd_chipset'] = part
-        elif 'Arc' in part: specs['intel_chipset'] = part
-        elif 'PCIe' in part: specs['gpu_interface'] = part
-        elif 'GDDR' in part: specs['gpu_memory_capacity'] = part
-        elif '출력 단자' in part: specs['output_ports'] = part
-        elif '권장 파워' in part: specs['recommended_psu'] = part
-        elif '팬 개수' in part: specs['fan_count'] = part
-        elif '가로(길이)' in part: specs['gpu_length'] = part
+        if 'RTX' in part or 'GTX' in part: 
+            specs['nvidia_chipset'] = part
+        elif 'RX' in part: 
+            specs['amd_chipset'] = part
+        elif 'Arc' in part: 
+            specs['intel_chipset'] = part
+        elif 'PCIe' in part and 'gpu_interface' not in specs: 
+            specs['gpu_interface'] = part
+        elif 'GDDR' in part and 'gpu_memory_type' not in specs:
+            specs['gpu_memory_type'] = part # 예: GDDR7
+        elif 'GB' in part and 'TB' not in part and 'gpu_memory_capacity' not in specs:
+             # '용량'이 다른 스펙(예: HDD)과 겹칠 수 있으므로 GPU 파서 내에서만 사용
+            specs['gpu_memory_capacity'] = part # 예: 12GB
+        elif '팬 개수' in part or ('팬' in part and len(part) < 4):
+            specs['fan_count'] = part # 3팬, 2팬 등
+        
+    # --- 2. 정규식을 이용한 상세 스펙 추출 (전체 텍스트 기반) ---
+    
+    # 전력 및 크기
+    if (m := re.search(r'정격파워\s*([\w\d\s]+이상)', full_text)):
+        specs['recommended_psu'] = m.group(1)
+    if (m := re.search(r'전원 포트:\s*([^\/]+)', full_text)):
+        specs['power_connector'] = m.group(1).strip()
+    if (m := re.search(r'가로\(길이\):\s*([\d\.]+mm)', full_text)):
+        specs['gpu_length'] = m.group(1)
+    if (m := re.search(r'두께:\s*([\d\.]+mm)', full_text)):
+        specs['gpu_thickness'] = m.group(1)
+    if (m := re.search(r'사용전력:\s*([\w\d\s]+)', full_text)):
+        specs['power_consumption'] = m.group(1).strip()
+
+    # 클럭 및 프로세서
+    if (m := re.search(r'베이스클럭:\s*(\d+MHz)', full_text)):
+        specs['base_clock'] = m.group(1)
+    if (m := re.search(r'부스트클럭:\s*(\d+MHz)', full_text)):
+        specs['boost_clock'] = m.group(1)
+    if (m := re.search(r'OC클럭:\s*(\d+MHz)', full_text)):
+        specs['oc_clock'] = m.group(1)
+    if (m := re.search(r'스트림 프로세서:\s*([\d,]+)개', full_text)):
+        specs['stream_processors'] = m.group(1) + '개'
+
+    # 출력 및 지원
+    if (m := re.search(r'출력단자:\s*([^\/]+)', full_text)):
+        specs['output_ports'] = m.group(1).strip()
+    if '8K' in full_text: specs['support_8k'] = 'Y'
+    if 'HDR' in full_text: specs['support_hdr'] = 'Y'
+    if 'HDCP 2.3' in full_text: specs['support_hdcp'] = '2.3'
+    if (m := re.search(r'A/S\s*([\d년]+)', full_text)):
+        specs['warranty_period'] = m.group(1)
+
+    # 특징
+    if '제로팬' in full_text or '0-dB' in full_text:
+        specs['zero_fan'] = 'Y'
+    if '백플레이트' in full_text:
+        specs['has_backplate'] = 'Y'
+    if 'DrMOS' in full_text:
+        specs['feature_drmos'] = 'Y'
+    if 'LED 라이트' in full_text:
+        specs['led_light'] = 'Y'
+    if (m := re.search(r'MYSTIC LIGHT', full_text)): # LED 시스템은 예시가 하나라 하드코딩
+        specs['led_system'] = m.group(0)
+    if (m := re.search(r'구성품:\s*([^\/]+)', full_text)):
+        specs['accessories'] = m.group(1).strip()
 
     return specs
 
 def parse_ssd_specs(name, spec_string):
-    """SSD 파싱 로직 개선"""
+    """SSD 파싱 로직 개선 (사용자 요청 스펙 모두 반영)"""
     specs = {}
     if name: specs['manufacturer'] = name.split()[0]
+    
     spec_parts = [part.strip() for part in spec_string.split('/')]
+    full_text = " / ".join(spec_parts) # '/'로 분리 안되는 스펙 검사용
+
+    # --- 1. 기본 스펙 (루프 파싱) ---
     for part in spec_parts:
-        if 'M.2' in part or '2.5인치' in part: specs['form_factor'] = part
-        elif 'PCIe' in part or 'SATA' in part: specs['ssd_interface'] = part
-        elif ('TB' in part or 'GB' in part) and 'capacity' not in specs: specs['capacity'] = part
-        elif 'TLC' in part or 'QLC' in part or 'MLC' in part: specs['memory_type'] = part
-        elif 'RAM 탑재' in part: specs['ram_mounted'] = part
-        elif '순차읽기' in part: specs['sequential_read'] = part
-        elif '순차쓰기' in part: specs['sequential_write'] = part
-            
+        if 'M.2' in part or '2.5인치' in part or 'SATA' in part and 'form_factor' not in specs: 
+            specs['form_factor'] = part
+        elif 'PCIe' in part or 'SATA' in part and 'ssd_interface' not in specs: 
+            specs['ssd_interface'] = part
+        elif ('TLC' in part or 'QLC' in part or 'MLC' in part) and 'memory_type' not in specs: 
+            specs['memory_type'] = part
+        elif 'DRAM 탑재' in part or 'DRAM 미탑재' in part: 
+            specs['ram_mounted'] = part
+        elif 'DDR' in part and 'GB' in part:
+            specs['ram_spec'] = part
+        elif '컨트롤러:' in part:
+            specs['controller'] = part.split(':')[-1].strip()
+        
+        # 성능
+        elif '순차읽기:' in part:
+            specs['sequential_read'] = part.split(':')[-1].strip()
+        elif '순차쓰기:' in part:
+            specs['sequential_write'] = part.split(':')[-1].strip()
+        elif '읽기IOPS:' in part:
+            specs['read_iops'] = part.split(':')[-1].strip()
+        elif '쓰기IOPS:' in part:
+            specs['write_iops'] = part.split(':')[-1].strip()
+
+        # 지원기능
+        elif 'TRIM' in part: specs['support_trim'] = 'Y'
+        elif 'GC' in part: specs['support_gc'] = 'Y'
+        elif 'SLC캐싱' in part: specs['support_slc_caching'] = 'Y'
+        elif 'S.M.A.R.T' in part: specs['support_smart'] = 'Y'
+        elif 'DEVSLP' in part: specs['support_devslp'] = 'Y'
+        elif 'AES 암호화' in part: specs['support_aes'] = 'Y'
+        elif '전용 S/W' in part: specs['support_sw'] = 'Y'
+        
+        # 환경특성
+        elif 'MTBF:' in part:
+            specs['mtbf'] = part.split(':')[-1].strip()
+        elif 'TBW:' in part:
+            specs['tbw'] = part.split(':')[-1].strip()
+        elif 'PS5 호환' in part:
+            specs['ps5_compatible'] = 'Y'
+        elif 'A/S기간:' in part:
+            specs['warranty_period'] = part.split(':')[-1].strip()
+        elif '방열판' in part and 'heatsink_presence' not in specs:
+            specs['heatsink_presence'] = part # 방열판 미포함, 방열판 포함 등
+        elif '두께:' in part:
+            specs['ssd_thickness'] = part.split(':')[-1].strip()
+        elif (m := re.search(r'(\d+g)$', part)):
+            specs['ssd_weight'] = m.group(1)
+    
+    # --- 2. 루프로 잡기 힘든 스펙 (A/S 기간 등) ---
+    if 'warranty_period' not in specs:
+         if (m := re.search(r'A/S\s*([\w\d년\s,]+)', full_text)):
+            specs['warranty_period'] = m.group(1).strip()
+    if 'capacity' not in specs: # 'TB'/'GB'가 TBW와 겹칠 수 있으므로 마지막에 체크
+        for part in spec_parts:
+            # 'TB' 또는 'GB'를 포함하지만 'TBW'나 'DDR'(DRAM스펙)은 아닌 경우
+            if ('TB' in part or 'GB' in part) and 'TBW' not in part and 'DDR' not in part and 'capacity' not in specs:
+                specs['capacity'] = part
+                break
+
     return specs
 
 def parse_hdd_specs(name, spec_string):
-    """HDD 파싱 로직 개선"""
+    """HDD 파싱 로직 개선 (사용자 요청 스펙 모두 반영)"""
     specs = {}
     if name: specs['manufacturer'] = name.split()[0]
+    
     spec_parts = [part.strip() for part in spec_string.split('/')]
+    full_text = " / ".join(spec_parts) # '/'로 분리 안되는 스펙 검사용
+
     for part in spec_parts:
-        if any(s in part for s in ['BarraCuda', 'IronWolf', 'WD', 'P300']): specs['hdd_series'] = part
-        elif ('TB' in part or 'GB' in part): specs['disk_capacity'] = part
-        elif 'RPM' in part: specs['rotation_speed'] = part
-        elif '버퍼' in part: specs['buffer_capacity'] = part
-        elif 'A/S' in part: specs['hdd_warranty'] = part
-            
+        if 'HDD (' in part: # HDD (NAS용)
+            specs['product_class'] = part
+        elif 'cm' in part or '인치' in part: # 8.9cm(3.5인치)
+            specs['form_factor'] = part
+        elif ('TB' in part or 'GB' in part) and 'disk_capacity' not in specs: 
+            specs['disk_capacity'] = part
+        elif 'SATA' in part: # SATA3 (6Gb/s)
+            specs['hdd_interface'] = part
+        elif 'RPM' in part: # 7,200RPM
+            specs['rotation_speed'] = part
+        elif '메모리' in part or '버퍼' in part: # 메모리 512MB
+            specs['buffer_capacity'] = part
+        elif 'MB/s' in part: # 275MB/s
+            specs['transfer_rate'] = part
+        elif '기록방식:' in part:
+            specs['recording_method'] = part.split(':')[-1].strip()
+        elif '두께:' in part:
+            specs['hdd_thickness'] = part.split(':')[-1].strip()
+        elif '헬륨충전' in part:
+            specs['helium_filled'] = 'Y'
+        elif 'RV센서' in part:
+            specs['rv_sensor'] = 'Y'
+        elif '사용보증:' in part:
+            specs['mtbf'] = part.split(':')[-1].strip()
+        elif '소음' in part and 'dB' in part: # 소음(유휴/탐색): 28/32dB
+            specs['noise_level'] = part.split(':')[-1].strip()
+        elif 'A/S 정보:' in part:
+            specs['hdd_warranty'] = part.split(':')[-1].strip()
+    
+    # A/S 정보가 루프에서 안 잡혔을 경우
+    if 'hdd_warranty' not in specs:
+         if (m := re.search(r'A/S 정보:\s*([^\/]+)', full_text)):
+            specs['hdd_warranty'] = m.group(1).strip()
+
     return specs
 
 def parse_case_specs(name, spec_string):
-    """케이스 파싱 로직 개선"""
+    """케이스 파싱 로직 개선 (사용자 요청 스펙 모두 반영)"""
     specs = {}
     if name: specs['manufacturer'] = name.split()[0]
+    
     spec_parts = [part.strip() for part in spec_string.split('/')]
+    full_text = " / ".join(spec_parts) # '/'로 분리 안되는 스펙 검사용
+
+    # --- 1. 기본 스펙 (루프 파싱) ---
     for part in spec_parts:
-        if 'PC케이스' in part: specs['product_type'] = part
-        elif '타워' in part: specs['case_size'] = part
-        elif 'ATX' in part or 'ITX' in part: specs['supported_board'] = part
-        elif '강화유리' in part or '메쉬' in part: specs['side_panel'] = part
-        elif '파워 장착' in part: specs['psu_length'] = part
-        elif 'VGA 장착' in part or '그래픽카드 장착' in part: specs['vga_length'] = part
-        elif '쿨러 장착' in part or 'CPU 쿨러 장착' in part: specs['cpu_cooler_height_limit'] = part
-            
+        if '케이스' in part and '(' not in part and 'product_class' not in specs: # 'PC케이스' or 'M-ATX 케이스'
+            specs['product_class'] = part
+        elif '지원보드규격:' in part:
+            specs['supported_board'] = part.split(':')[-1].strip()
+        elif 'VGA' in part and ('mm' in part or '길이' in part) and 'vga_length' not in specs:
+            specs['vga_length'] = part.split(':')[-1].strip()
+        elif 'CPU' in part and ('mm' in part or '높이' in part) and 'cpu_cooler_height_limit' not in specs:
+            specs['cpu_cooler_height_limit'] = part.split(':')[-1].strip()
+        elif '타워' in part: # 미니타워, 빅타워 등
+            specs['case_size'] = part
+        elif '파워미포함' in part or '파워포함' in part:
+            specs['psu_included'] = part
+        elif '측면:' in part: # 측면 패널 타입: (Fallback)
+            specs['panel_side'] = part.split(':')[-1].strip()
+        elif '파워 장착 길이:' in part:
+            specs['psu_length'] = part.split(':')[-1].strip()
+        elif '파워 위치:' in part:
+            specs['psu_location'] = part.split(':')[-1].strip()
+        elif 'LED 색상:' in part:
+            specs['led_color'] = part.split(':')[-1].strip()
+
+    # --- 2. 정규식을 이용한 상세 스펙 추출 (전체 텍스트 기반) ---
+    
+    # 패널
+    if (m := re.search(r'전면 패널 타입:\s*([^\/]+)', full_text)):
+        specs['panel_front'] = m.group(1).strip()
+    if (m := re.search(r'측면 패널 타입:\s*([^\/]+)', full_text)):
+        specs['panel_side'] = m.group(1).strip() # 루프 파싱 덮어쓰기 (더 정확)
+
+    # 쿨러/튜닝
+    if (m := re.search(r'쿨링팬:\s*(총[\d]+개)', full_text)):
+        specs['cooling_fan_total'] = m.group(1)
+    if (m := re.search(r'LED팬:\s*([\d]+개)', full_text)):
+        specs['cooling_fan_led'] = m.group(1)
+    if (m := re.search(r'후면:\s*([^\/]+)', full_text)):
+        specs['cooling_fan_rear'] = m.group(1).strip()
+
+    # 크기
+    if (m := re.search(r'너비\(W\):\s*([\d\.]+mm)', full_text)):
+        specs['case_width'] = m.group(1)
+    if (m := re.search(r'깊이\(D\):\s*([\d\.]+mm)', full_text)):
+        specs['case_depth'] = m.group(1)
+    if (m := re.search(r'높이\(H\):\s*([\d\.]+mm)', full_text)):
+        specs['case_height'] = m.group(1)
+
     return specs
 
 def parse_power_specs(name, spec_string):
-    """파워 파싱 로직 개선"""
+    """파워 파싱 로직 개선 (사용자 요청 스펙 모두 반영)"""
     specs = {}
     if name: specs['manufacturer'] = name.split()[0]
+    
     spec_parts = [part.strip() for part in spec_string.split('/')]
+    full_text = " / ".join(spec_parts) # '/'로 분리 안되는 스펙 검사용
+
     for part in spec_parts:
-        if '파워' in part: specs['product_type'] = part
-        elif '정격출력' in part or ('W' in part and 'rated_output' not in specs): specs['rated_output'] = part
-        elif '80PLUS' in part: specs['eighty_plus_cert'] = part
-        elif 'ETA' in part: specs['eta_cert'] = part
-        elif '케이블연결' in part: specs['cable_connection'] = part
-        elif '16핀' in part: specs['pcie_16pin'] = part
+        if '파워' in part and 'ATX' in part and 'product_class' not in specs: 
+            specs['product_class'] = part # ATX 파워
+        elif 'W' in part and 'rated_output' not in specs: 
+            specs['rated_output'] = part # 850W
+        elif '80 PLUS' in part: 
+            specs['eighty_plus_cert'] = part # 80 PLUS 브론즈
+        elif '케이블연결:' in part:
+            specs['cable_connection'] = part.split(':')[-1].strip()
+        elif 'ETA인증:' in part:
+            specs['eta_cert'] = part.split(':')[-1].strip()
+        elif 'LAMBDA인증:' in part:
+            specs['lambda_cert'] = part.split(':')[-1].strip()
+        elif '+12V' in part and '레일' in part:
+            specs['plus_12v_rail'] = part # +12V 싱글레일
+        elif '+12V 가용률:' in part:
+            specs['plus_12v_availability'] = part.split(':')[-1].strip()
+        elif 'PFC' in part: # 액티브PFC
+            specs['pfc_circuit'] = part
+        elif 'PF(역률):' in part:
+            specs['pf_rate'] = part.split(':')[-1].strip()
+        elif 'mm 팬' in part: # 120mm 팬
+            specs['fan_size'] = part
+        elif '깊이:' in part:
+            specs['psu_depth'] = part.split(':')[-1].strip()
+        elif '무상' in part or 'A/S' in part and 'warranty_period' not in specs:
+            specs['warranty_period'] = part # 무상 7년
             
+        # 커넥터
+        elif '메인전원:' in part:
+            specs['main_connector'] = part.split(':')[-1].strip()
+        elif '보조전원:' in part:
+            specs['aux_connector'] = part.split(':')[-1].strip()
+        elif 'PCIe 16핀' in part:
+            specs['pcie_16pin'] = part.split(':')[-1].strip()
+        elif 'PCIe 8핀' in part:
+            specs['pcie_8pin'] = part.split(':')[-1].strip()
+        elif 'SATA:' in part:
+            specs['sata_connectors'] = part.split(':')[-1].strip()
+        elif 'IDE 4핀:' in part:
+            specs['ide_4pin_connectors'] = part.split(':')[-1].strip()
+            
+        # 부가기능
+        elif '대기전력 1W 미만' in part:
+            specs['feature_standby_power'] = 'Y'
+        elif '플랫케이블' in part:
+            specs['feature_flat_cable'] = 'Y'
+            
+    # 변경사항 (전체 텍스트에서 검색)
+    if (m := re.search(r'(\d{2}년 \d{1,2}월.*)', full_text)):
+        specs['product_note'] = m.group(1)
+
     return specs
 
 PARSER_MAP = {
