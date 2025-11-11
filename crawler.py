@@ -31,12 +31,12 @@ DB_NAME = 'danawa'
 
 # --- 3. 크롤링 카테고리 ---
 CATEGORIES = {
-    #   'CPU': 'cpu', 
+       'CPU': 'cpu', 
        '쿨러': 'cooler&attribute=687-4015-OR%2C687-4017-OR',
-    #   '메인보드': 'mainboard', 'RAM': 'RAM',
-    #   '그래픽카드': 'vga',
-    #   'SSD': 'ssd', 'HDD': 'hdd', 
-    #   '케이스': 'pc case', '파워': 'power'
+       '메인보드': 'mainboard', 'RAM': 'RAM',
+       '그래픽카드': 'vga',
+       'SSD': 'ssd', 'HDD': 'hdd', 
+       '케이스': 'pc case', '파워': 'power'
 }
 
 # --- 5. SQLAlchemy 엔진 생성 ---
@@ -1826,6 +1826,8 @@ def scrape_3dmark_timespy(page, cpu_name, conn, part_id):
     except Exception as e:
         print(f"        -> (경고) 3DMark Time Spy 수집 중 오류: {type(e).__name__} - {str(e)[:100]}")
 
+# (crawler.py 파일의 1238행부터 시작)
+
 def scrape_category(page, category_name, query, collect_reviews=False, collect_benchmarks=False):
     """
     카테고리별 크롤링 함수
@@ -1891,7 +1893,7 @@ def scrape_category(page, category_name, query, collect_reviews=False, collect_b
                 page.wait_for_selector('ul.product_list', timeout=10000)
 
                 # [수정] 스크롤 로직 강화 (횟수 5, 대기 1초)
-                print("      -> 스크롤 다운 (5회)...")
+                print("     -> 스크롤 다운 (5회)...")
                 for _ in range(5):
                     page.mouse.wheel(0, 1500)
                     page.wait_for_timeout(1000) # 👈 스크롤 후 대기 시간 증가
@@ -1900,7 +1902,7 @@ def scrape_category(page, category_name, query, collect_reviews=False, collect_b
                 try:
                     page.wait_for_load_state('networkidle', timeout=10000)
                 except Exception as e:
-                    print(f"      -> (경고) networkidle 대기 시간 초과 (무시하고 진행): {type(e).__name__}")
+                    print(f"     -> (경고) networkidle 대기 시간 초과 (무시하고 진행): {type(e).__name__}")
 
                 # --- [핵심 수정] ---
                 # BeautifulSoup(page.content()) 대신 Playwright Locator 사용
@@ -1912,14 +1914,14 @@ def scrape_category(page, category_name, query, collect_reviews=False, collect_b
                 try:
                     product_items_loc.first.wait_for(timeout=10000)
                 except Exception:
-                    print("      -> (경고) 상품 아이템(li.prod_item)을 기다렸지만 로드되지 않았습니다.")
+                    print("     -> (경고) 상품 아이템(li.prod_item)을 기다렸지만 로드되지 않았습니다.")
                     
                 item_count = product_items_loc.count()
                 if item_count == 0:
                     print("--- 현재 페이지에 상품이 없어 다음 카테고리로 넘어갑니다. ---")
                     break
                 
-                print(f"      -> {item_count}개 상품 아이템(locator) 감지. 파싱 시작...")
+                print(f"     -> {item_count}개 상품 아이템(locator) 감지. 파싱 시작...")
 
                 # 3. BeautifulSoup 루프 대신 locator 루프 사용
                 for i in range(item_count):
@@ -1949,8 +1951,8 @@ def scrape_category(page, category_name, query, collect_reviews=False, collect_b
                         
                         # [수정] 🔽 .first를 이미 위에서 사용했으므로 여기서는 제거
                         img_src = img_tag_loc.get_attribute('data-src', timeout=2000) or \
-                                  img_tag_loc.get_attribute('data-original-src', timeout=2000) or \
-                                  img_tag_loc.get_attribute('src', timeout=2000)
+                                    img_tag_loc.get_attribute('data-original-src', timeout=2000) or \
+                                    img_tag_loc.get_attribute('src', timeout=2000)
 
                         if img_src and not img_src.startswith('https:'):
                             img_src = 'https:' + img_src
@@ -2022,7 +2024,7 @@ def scrape_category(page, category_name, query, collect_reviews=False, collect_b
                         manufacturer = name.split()[0]
 
                     # --- 👇 [수정 1] "시작" 로그 추가 ---
-                    print(f"\n  [처리 시작] {name}") # 한 줄 띄우고 시작
+                    print(f"\n   [처리 시작] {name}") # 한 줄 띄우고 시작
                     
                     # --- 4. (신규) 1단계: `parts` 테이블에 공통 정보 저장 ---
                     parts_params = {
@@ -2057,7 +2059,7 @@ def scrape_category(page, category_name, query, collect_reviews=False, collect_b
 
                             # --- 👇 [신규] 3대 벤치마크 수집 (Cinebench, Geekbench, Blender) ---
                             if collect_benchmarks and category_name == 'CPU':
-                                print(f"      -> 벤치마크 수집 시도...")
+                                print(f"         -> 벤치마크 수집 시도...")
                                 # (1) Cinebench R23 (render4you.com)
                                 scrape_cinebench_r23(page, name, conn, part_id, category_name)
                                 time.sleep(2)
@@ -2068,11 +2070,11 @@ def scrape_category(page, category_name, query, collect_reviews=False, collect_b
                                 scrape_blender_median(page, name, conn, part_id)
                                 time.sleep(2)
                                 
-                                print(f"      -> 벤치마크 수집 완료.")
+                                print(f"         -> 벤치마크 수집 완료.")
 
                             # --- 👇 [신규] GPU 벤치마크 수집 (Blender GPU) ---
                             if collect_benchmarks and category_name == '그래픽카드':
-                                print(f"      -> GPU 벤치마크 수집 시도...")
+                                print(f"         -> GPU 벤치마크 수집 시도...")
                                 # 동일 모델(GPU 공통 라벨)에 대한 벤치가 이미 존재하면 스킵
                                 common_label, token = _normalize_gpu_model(name)
                                 skip_gpu = False
@@ -2081,26 +2083,27 @@ def scrape_category(page, category_name, query, collect_reviews=False, collect_b
                                         "SELECT EXISTS(SELECT 1 FROM benchmark_results WHERE part_type='GPU' AND cpu_model=:m)"
                                     ), {"m": common_label}).scalar()
                                     if exists_any == 1:
-                                        print(f"        -> (건너뜀) {common_label} 벤치마크가 이미 존재합니다.")
+                                        print(f"         -> (건너뜀) {common_label} 벤치마크가 이미 존재합니다.")
                                         skip_gpu = True
                                 except:
                                     pass
                                 if skip_gpu:
                                     # 벤치마크만 건너뛰고, 나머지 저장/커밋은 계속 진행
                                     pass
-                                # (1) Blender GPU Median (opendata.blender.org)
-                                scrape_blender_gpu(page, common_label, conn, part_id)
-                                time.sleep(2)
-                                # (2) 3DMark Fire Strike / Time Spy / Port Royal (랭킹/리더보드 페이지)
-                                # 주의: 실제 랭킹 URL은 제품/테스트별로 다를 수 있어, 기본 엔트리 포인트로 접근 후 텍스트 기반 파싱을 수행
-                                scrape_3dmark_generic(page, common_label, conn, part_id, 'Fire Strike', 'https://www.3dmark.com/search#advanced/fs')
-                                page.goto("about:blank")
-                                time.sleep(2)
-                                scrape_3dmark_generic(page, common_label, conn, part_id, 'Time Spy', 'https://www.3dmark.com/search#advanced/spy')
-                                page.goto("about:blank")
-                                time.sleep(2)
-                                scrape_3dmark_generic(page, common_label, conn, part_id, 'Port Royal', 'https://www.3dmark.com/search#advanced/pr')
-                                time.sleep(2)
+                                else: # 👈 [수정] skip_gpu가 False일 때만 벤치마크 수집
+                                    # (1) Blender GPU Median (opendata.blender.org)
+                                    scrape_blender_gpu(page, common_label, conn, part_id)
+                                    time.sleep(2)
+                                    # (2) 3DMark Fire Strike / Time Spy / Port Royal (랭킹/리더보드 페이지)
+                                    # 주의: 실제 랭킹 URL은 제품/테스트별로 다를 수 있어, 기본 엔트리 포인트로 접근 후 텍스트 기반 파싱을 수행
+                                    scrape_3dmark_generic(page, common_label, conn, part_id, 'Fire Strike', 'https://www.3dmark.com/search#advanced/fs')
+                                    page.goto("about:blank")
+                                    time.sleep(2)
+                                    scrape_3dmark_generic(page, common_label, conn, part_id, 'Time Spy', 'https://www.3dmark.com/search#advanced/spy')
+                                    page.goto("about:blank")
+                                    time.sleep(2)
+                                    scrape_3dmark_generic(page, common_label, conn, part_id, 'Port Royal', 'https://www.3dmark.com/search#advanced/pr')
+                                    time.sleep(2)
 
                             # 2. DB에 저장 (기존)
                             specs_json = json.dumps(detailed_specs, ensure_ascii=False)
@@ -2110,6 +2113,26 @@ def scrape_category(page, category_name, query, collect_reviews=False, collect_b
                                 "specs": specs_json
                             }
                             conn.execute(sql_specs, specs_params) # part_spec 테이블에 저장
+                            
+                            # --- 👇 [핵심 수정] part_spec.id를 parts.part_spec_id에 연결 ---
+                            # 1. 방금 저장/수정된 part_spec의 id를 part_id를 이용해 다시 조회
+                            #    (MySQL은 ON DUPLICATE KEY UPDATE에서 ID를 반환하지 않으므로, 별도 조회가 필요)
+                            get_spec_id_sql = text("SELECT id FROM part_spec WHERE part_id = :part_id")
+                            spec_id_result = conn.execute(get_spec_id_sql, {"part_id": part_id})
+                            spec_id = spec_id_result.scalar_one_or_none()
+                            
+                            # 2. 조회된 spec_id를 parts 테이블에 업데이트
+                            if spec_id:
+                                update_parts_sql = text("""
+                                    UPDATE parts
+                                    SET part_spec_id = :spec_id
+                                    WHERE id = :part_id
+                                """)
+                                conn.execute(update_parts_sql, {"spec_id": spec_id, "part_id": part_id})
+                                print(f"         -> parts 테이블 연결 완료 (part_id: {part_id} -> spec_id: {spec_id})") # 로그 추가
+                            else:
+                                print(f"      [경고] part_id {part_id}에 해당하는 spec_id를 찾지 못해 parts.part_spec_id를 업데이트할 수 없습니다.")
+                            # --- [수정 완료] ---
 
 
                         # --- (수정) 3단계: 퀘이사존 리뷰 수집 (선택적) ---
@@ -2119,22 +2142,22 @@ def scrape_category(page, category_name, query, collect_reviews=False, collect_b
                             review_exists = review_exists_result.scalar() == 1 # (True 또는 False)
 
                             if not review_exists:
-                                print(f"      -> 퀘이사존 리뷰 없음, 수집 시도...") # 4칸 -> 6칸
+                                print(f"         -> 퀘이사존 리뷰 없음, 수집 시도...") # 4칸 -> 6칸
                                 # (신규) category_name과 detailed_specs를 인자로 추가 전달
                                 scrape_quasarzone_reviews(page, conn, sql_review, part_id, name, category_name, detailed_specs)
                             # else:
                                 # (선택적) 이미 리뷰가 있다면 건너뛰었다고 로그 표시
-                                # print(f"    -> (건너뜀) 이미 퀘이사존 리뷰가 수집된 상품입니다.")
+                                # print(f"     -> (건너뜀) 이미 퀘이사존 리뷰가 수집된 상품입니다.")
 
                         trans.commit() # 트랜잭션 완료
                         # --- 👇 [수정 3] "완료" 로그 수정 및 들여쓰기 추가 ---
-                        print(f"    [처리 완료] {name} (댓글: {review_count}) 저장 성공.")
+                        print(f"     [처리 완료] {name} (댓글: {review_count}) 저장 성공.")
                         
                     except Exception as e:
                         trans.rollback() # 오류 발생 시 롤백
 
                         # --- 👇 [수정 4] "오류" 로그 수정 및 들여쓰기 추가 ---
-                        print(f"    [처리 오류] {name} 저장 중 오류 발생: {e}") 
+                        print(f"     [처리 오류] {name} 저장 중 오류 발생: {e}") 
 
                     # # --- 👇 [필수] 상품 1개만 테스트하기 위해 break 추가 ---
                     #     print("\n--- [테스트] 상품 1개 처리 완료, 크롤러를 중단합니다. ---")

@@ -135,49 +135,56 @@ const FILTER_ORDER_MAP = {
   파워: ['manufacturer', 'product_type', 'rated_output', 'eighty_plus_cert', 'eta_cert', 'cable_connection', 'pcie_16pin']
 };
 
-// --- [수정됨] JSON specs 필드를 파싱하여 스펙 문자열을 생성하는 함수 ---
-const generateSpecString = (part) => {
-  let parsedSpecs = {};
-  try {
-    // 백엔드 DTO(PartResponseDto)는 specs를 Map<String, String>으로 보냅니다.
-    // Axios는 이것을 JSON 객체로 자동 변환하므로, JSON.parse()가 필요 없습니다.
-    if (part.specs) {
-      parsedSpecs = part.specs; 
-    } else {
-      return ''; // 스펙이 없으면 빈 문자열
+/**
+ * [신규] 상품 카드에 표시할 핵심 스펙을 추출하는 헬퍼 함수
+ * part.specs JSON을 파싱하여 카테고리별 주요 스펙을 반환합니다.
+ */
+const getSummarySpecs = (part) => {
+    if (!part.specs || typeof part.specs !== 'object') {
+        // DTO에서 specs가 아예 없거나 ({}가 아닌) null, undefined인 경우
+        return [];
     }
-  } catch (e) {
-    console.error("Failed to read specs object:", e, part.specs);
-    return ''; // 파싱 실패 시
-  }
+    try {
+        const parsed = part.specs; // DTO가 이미 JSON 객체로 보내주므로 JSON.parse 불필요
+        const summary = [];
+        
+        // 카테고리별로 카드에 보여줄 우선순위 스펙 키
+        // FILTER_ORDER_MAP을 재사용하여 순서대로 가져옴
+        const keys = FILTER_ORDER_MAP[part.category] || [];
+        
+        for (const key of keys) {
+            // nvidia_chipset 또는 amd_chipset/intel_chipset 둘 중 하나만 처리
+            if (key === 'nvidia_chipset') {
+                 if (parsed['nvidia_chipset']) {
+                    summary.push({ key: FILTER_LABELS[key], value: parsed[key] });
+                 } else if (parsed['amd_chipset']) {
+                    summary.push({ key: FILTER_LABELS['amd_chipset'], value: parsed['amd_chipset'] });
+                 } else if (parsed['intel_chipset']) {
+                    summary.push({ key: FILTER_LABELS['intel_chipset'], value: parsed['intel_chipset'] });
+                 }
+                 continue; // 중복 방지
+            }
+            // 이미 위에서 처리했으므로 건너뛰기
+            if (key === 'amd_chipset' || key === 'intel_chipset') continue;
+            
+            // 그 외 스펙들은 순서대로 추가
+            if (parsed[key]) {
+                const label = FILTER_LABELS[key] || key; 
+                summary.push({ key: label, value: parsed[key] });
+            }
+            
+            // --- 👇 [수정] 최대 3개에서 8개로 변경 ---
+            if (summary.length >= 8) {
+                break;
+            }
+        }
+        return summary;
 
-  // 1. 현재 카테고리에 해당하는 스펙 순서(배열)를 FILTER_ORDER_MAP에서 가져옵니다.
-  const specOrder = FILTER_ORDER_MAP[part.category];
-
-  // 2. 스펙 순서가 정의되지 않았으면 빈 문자열 반환
-  if (!specOrder) {
-    return '';
-  }
-
-  // 3. 스펙 순서 배열(specOrder)을 순회하며 parsedSpecs에서 값을 찾습니다.
-  const specs = specOrder.map(key => {
-    
-    // [특별 처리] GPU 칩셋 (NVIDIA, AMD, Intel 중 하나만 표시)
-    if (key === 'nvidia_chipset') {
-      return parsedSpecs.nvidia_chipset || parsedSpecs.amd_chipset || parsedSpecs.intel_chipset;
+    } catch (e) {
+        console.error("Failed to parse summary specs:", e, part.specs);
+        return [];
     }
-    if (key === 'amd_chipset' || key === 'intel_chipset') {
-      return null; // nvidia_chipset에서 이미 처리했으므로 건너뜀
-    }
-
-    // 4. 스펙 값이 존재하면(null, undefined, ""가 아니면) 해당 값을 반환
-    return parsedSpecs[key];
-  });
-
-  // 5. 빈 값(null)을 제거하고 ' / '로 합칩니다.
-  return specs.filter(Boolean).join(' / ');
 };
-
 
 function App() {
   const [parts, setParts] = useState([]);
@@ -584,20 +591,32 @@ function App() {
             ) : (
               <>
                 <div className="parts-list">
-                  {parts.length > 0 ? parts.map(part => {
-                      const specString = generateSpecString(part); // 👈 1번에서 수정한 함수가 호출됨
-                      return (
-                        <div key={part.id} className="card-link" onClick={() => handleOpenDetailModal(part)}> 
-                          <div className="part-card">
-                            <img src={part.imgSrc || 'https://img.danawa.com/new/noData/img/noImg_160.gif'} alt={part.name} className="part-image" />
-                            <div className="part-info">
-                              <h2 className="part-name">{part.name}</h2>
-                              
-                              {/* 👈 여기서 쿨러 상세 스펙이 표시됨 */}
-                              {specString && <p className="part-specs">{specString}</p>} 
-                              
-                              <p className="part-price">{part.price.toLocaleString()}원</p>
-                              <div className="part-reviews">
+                      {parts.length > 0 ? parts.map(part => {
+                          // --- 👇 [수정] getSummarySpecs 함수 호출 ---
+                          const summarySpecs = getSummarySpecs(part); 
+                          return (
+                              <div key={part.id} className="card-link" onClick={() => handleOpenDetailModal(part)}> 
+                                  <div className="part-card">
+                                      <img src={part.imgSrc || 'https://img.danawa.com/new/noData/img/noImg_160.gif'} alt={part.name} className="part-image" />
+                                      <div className="part-info">
+                                          <h2 className="part-name">{part.name}</h2>
+                                          
+                                          {/* --- 👇 [수정] 상세 스펙 요약 리스트 (ul/li 사용) --- */}
+                                          <ul className="part-summary-specs">
+                                              {summarySpecs.length > 0 ? (
+                                                  summarySpecs.map(spec => (
+                                                      <li key={spec.key}>
+                                                          <strong>{spec.key}:</strong> {spec.value}
+                                                      </li>
+                                                  ))
+                                              ) : (
+                                                  <li className="no-spec">주요 스펙 정보 없음</li>
+                                              )}
+                                          </ul>
+                                          {/* --- [수정 완료] --- */}
+                                          
+                                          <p className="part-price">{part.price.toLocaleString()}원</p>
+                                          <div className="part-reviews">
                                 {/* 👈 한글화 확인 */}
                                 <span>의견 {part.reviewCount?.toLocaleString() || 0}</span>
                                 <span className="review-divider">|</span>
