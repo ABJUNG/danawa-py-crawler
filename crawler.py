@@ -8,7 +8,7 @@ from playwright_stealth import stealth_sync
 from urllib.parse import quote_plus, quote
 import requests
 import statistics
-
+import sys
 from google.cloud.sql.connector import Connector
 
 
@@ -25,12 +25,12 @@ HEADLESS_MODE = True
 SLOW_MOTION = 50
 
 # --- 2. DB 설정 ---
-DB_USER = 'root'
-DB_PASSWORD = 'fullstack'  # 실제 비밀번호로 수정
-DB_NAME = 'danawa'
-
-# [신규] Cloud SQL 인스턴스 연결 이름 (1단계에서 확인한 값)
-INSTANCE_CONNECTION_NAME = 'pcbuildproject-478007:asia-northeast3:danawa-db-instance'
+# [수정] 모든 DB 정보는 Cloud Run Job의 환경 변수에서 읽어옵니다.
+import os
+DB_USER = os.environ.get("DB_USER")
+DB_PASSWORD = os.environ.get("DB_PASS")
+DB_NAME = os.environ.get("DB_NAME")
+INSTANCE_CONNECTION_NAME = os.environ.get("INSTANCE_CONNECTION_NAME")
 
 # --- 3. 크롤링 카테고리 ---
 CATEGORIES = {
@@ -46,36 +46,30 @@ CATEGORIES = {
 }
 
 # --- 5. SQLAlchemy 엔진 생성 ---
-
-import os
-from google.cloud.sql.connector import Connector, IPTypes
-
-# Cloud Run에서 설정할 환경 변수들
-DB_USER = os.environ.get("DB_USER") # 예: "root"
-DB_PASSWORD = os.environ.get("DB_PASS") # 예: "1234"
-DB_NAME = os.environ.get("DB_NAME") # 예: "danawa"
-INSTANCE_CONNECTION_NAME = os.environ.get("INSTANCE_CONNECTION_NAME") # 예: "my-project:region:my-instance"
-
-
 try:
+    # [검증] 환경 변수가 제대로 설정되었는지 확인
+    if not all([DB_USER, DB_PASSWORD, DB_NAME, INSTANCE_CONNECTION_NAME]):
+        raise ValueError("DB_USER, DB_PASS, DB_NAME, INSTANCE_CONNECTION_NAME 환경 변수를 모두 설정해야 합니다.")
+
     connector = Connector()
 
     # Cloud SQL 연결을 위한 헬퍼 함수
     def getconn():
-        # IP 유형을 PRIVATE으로 설정 (VPC 사용 시) 또는 PUBLIC
+        # [수정] "mysql+mysqlconnector" 사용
         conn = connector.connect(
             INSTANCE_CONNECTION_NAME,
-            "pymysql",  # 👈 (수정) "mysql+mysqlconnector" -> "pymysql"
+            "mysql+mysqlconnector",
             user=DB_USER,
             password=DB_PASSWORD,
-            db=DB_NAME,
-            ip_type=IPTypes.PRIVATE 
+            db=DB_NAME
+            # [삭제] ip_type=IPTypes.PRIVATE 옵션 제거
         )
         return conn
 
     # SQLAlchemy 엔진 생성 (연결 풀 사용)
     engine = create_engine(
-        "mysql+pymysql://",  # 👈 (수정) "mysql+mysqlconnector://" -> "mysql+pymysql://"
+        # [수정] "mysql+mysqlconnector://" 사용
+        "mysql+mysqlconnector://",
         creator=getconn,
     )
 
@@ -2644,39 +2638,6 @@ def scrape_category(page, category_name, query, collect_reviews=False, collect_b
 # 기존 run_crawler 함수를 찾아서 scrape_category 호출 부분을 수정합니다.
 
 
-def get_user_choice():
-    """
-    사용자로부터 크롤링 옵션을 Y/N 형식으로 입력받습니다.
-    """
-    print("\n" + "="*60)
-    print("크롤링 옵션 선택")
-    print("="*60)
-    print("1. 다나와 부품 정보 및 가격/스펙 수집 (필수)")
-    print("   -> 항상 수집됩니다.")
-    
-    while True:
-        choice = input("\n2. 퀘이사존 리뷰 기사 수집? (Y/N): ").strip().upper()
-        if choice in ['Y', 'N']:
-            collect_reviews = (choice == 'Y')
-            break
-        print("   -> Y 또는 N을 입력해주세요.")
-    
-    while True:
-        choice = input("3. 벤치마크 정보 수집? (Y/N): ").strip().upper()
-        if choice in ['Y', 'N']:
-            collect_benchmarks = (choice == 'Y')
-            break
-        print("   -> Y 또는 N을 입력해주세요.")
-    
-    print("\n" + "="*60)
-    print("선택된 옵션:")
-    print(f"  - 다나와 부품 정보: 필수 (항상 수집)")
-    print(f"  - 퀘이사존 리뷰: {'수집함' if collect_reviews else '건너뜀'}")
-    print(f"  - 벤치마크 정보: {'수집함' if collect_benchmarks else '건너뜀'}")
-    print("="*60 + "\n")
-    
-    return collect_reviews, collect_benchmarks
-
 def run_crawler(collect_reviews=False, collect_benchmarks=False):
     """
     크롤러 실행 함수
@@ -2856,6 +2817,20 @@ def scrape_quasarzone_reviews(page, conn, sql_review, part_id, part_name, catego
         pass
 
 if __name__ == "__main__":
-    # 사용자로부터 크롤링 옵션 입력받기
-    collect_reviews, collect_benchmarks = get_user_choice()
+    # 1. 명령줄 인수(sys.argv)에서 선택지를 읽어옵니다.
+    # 예: python crawler.py --reviews --benchmarks
+    args = sys.argv
+
+    # 2. '--reviews' 인수가 있으면 True, 없으면 False가 됩니다.
+    collect_reviews = "--reviews" in args
+    # 3. '--benchmarks' 인수가 있으면 True, 없으면 False가 됩니다.
+    collect_benchmarks = "--benchmarks" in args
+
+    print("="*60)
+    print("크롤러 실행 옵션:")
+    print(f" - 퀘이사존 리뷰 수집: {'수집함' if collect_reviews else '건너뜀 (활성화하려면 --reviews 인수 추가)'}")
+    print(f" - 벤치마크 정보 수집: {'수집함' if collect_benchmarks else '건너뜀 (활성화하려면 --benchmarks 인수 추가)'}")
+    print("="*60 + "\n")
+
+    # 4. 읽어온 옵션을 run_crawler 함수로 전달합니다.
     run_crawler(collect_reviews=collect_reviews, collect_benchmarks=collect_benchmarks)

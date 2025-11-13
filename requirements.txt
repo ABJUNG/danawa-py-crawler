@@ -5,4 +5,5 @@ lxml
 playwright-stealth==1.0.6
 google-generativeai
 requests
-cloud-sql-python-connector[pymysql]
+mysql-connector-python
+google-cloud-sql-connector
