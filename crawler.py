@@ -133,57 +133,108 @@ except Exception as e:
     exit()
 
 def parse_cpu_specs(name, spec_string):
-    """[최종 완성] P+E코어, 복합 스레드 등 모든 최신 CPU 스펙을 완벽하게 지원하는 파서"""
+    """[수정] P+E코어, 클럭, 캐시, 벤치마크 등 상세 스펙을 지원하는 CPU 파서"""
     specs = {}
-    # 이름과 스펙 문자열을 하나로 합쳐 검색 효율성 극대화
+    
+    # 1. 기본 텍스트 준비
     full_text = name + " / " + spec_string
+    spec_parts = [part.strip() for part in spec_string.split('/')]
 
-    # 1. 제조사 확정
+    # 2. 제조사 확정 (기존 로직)
     if '인텔' in full_text or '코어i' in full_text or '울트라' in full_text:
         specs['manufacturer'] = '인텔'
     elif 'AMD' in full_text or '라이젠' in full_text:
         specs['manufacturer'] = 'AMD'
 
-    # 2. 정규 표현식으로 각 스펙을 정확하게 추출
+    # 3. 루프를 돌며 "Key: Value" 및 단순 키워드 스펙 파싱
+    for part in spec_parts:
+        # "스펙명: 값" 형식에서 '값' 부분만 추출 (없으면 원본)
+        value = part.split(':', 1)[-1].strip()
+
+        if '메모리 규격:' in part:
+            specs['memory_spec'] = value
+        elif '기본 클럭:' in part:
+            specs['base_clock'] = value
+        elif '최대 클럭:' in part:
+            specs['max_clock'] = value
+        elif 'L2 캐시:' in part:
+            specs['l2_cache'] = value
+        elif 'L3 캐시:' in part:
+            specs['l3_cache'] = value
+        elif 'PBP-MTP:' in part: # 인텔 전력
+            specs['power_consumption'] = value
+        elif 'TDP:' in part: # AMD 전력
+            specs['power_consumption'] = value
+        elif '기술 지원:' in part:
+            specs['tech_support'] = value
+        elif '쿨러:' in part:
+            specs['cooler_included'] = value
+        elif '시네벤치R23(싱글):' in part:
+            specs['cinebench_r23_single'] = value
+        elif '시네벤치R23(멀티):' in part:
+            specs['cinebench_r23_multi'] = value
+        elif '출시가:' in part:
+            specs['launch_price'] = value
+        elif 'nm' in part and 'process_node' not in specs: # 예: TSMC 3nm
+            specs['process_node'] = part
+        elif 'PCIe' in part and 'pcie_version' not in specs: # 예: PCIe5.0, 4.0
+            specs['pcie_version'] = part
+        elif 'MHz' in part and 'memory_clock_default' not in specs: # 예: 6400MHz
+            specs['memory_clock_default'] = part
+        elif '그래픽' in part and '내장그래픽' not in part and 'graphics_model' not in specs: # 예: 인텔 그래픽스(Xe LPG)
+            specs['graphics_model'] = part
+
+    # 4. 정규 표현식으로 복잡/중복 스펙 보완 (기존 로직 + 개선)
     
-    # 코어 (P+E 코어 형식 포함, 예: P8+E12코어, 8코어)
-    core_match = re.search(r'([PE\d\+]+코어)', full_text)
-    if core_match:
-        specs['cores'] = core_match.group(1)
+    # 코어 (기존 로직)
+    if 'cores' not in specs:
+        core_match = re.search(r'([PE\d\+]+코어)', full_text)
+        if core_match:
+            specs['cores'] = core_match.group(1)
 
-    # 스레드 (복합 스레드 형식 포함, 예: 12+8스레드, 20스레드)
-    # --- 여기가 핵심 수정 부분입니다! ---
-    # [수정] \d(숫자) 외에 +(플러스) 기호도 포함할 수 있도록 [\d\+] 사용
-    thread_match = re.search(r'([\d\+]+)\s*스레드', full_text)
-    if thread_match:
-        specs['threads'] = thread_match.group(1).replace(' ', '') + '스레드'
+    # 스레드 (기존 로직)
+    if 'threads' not in specs:
+        thread_match = re.search(r'([\d\+]+)\s*스레드', full_text)
+        if thread_match:
+            specs['threads'] = thread_match.group(1).replace(' ', '') + '스레드'
 
-    # 소켓 (괄호 안 형식 포함, 예: 인텔(소켓1700))
-    socket_match = re.search(r'소켓([^\s\)]+)', full_text)
-    if socket_match:
-        specs['socket'] = '소켓' + socket_match.group(1)
+    # 소켓 (개선된 로직: 괄호 안의 소켓도 인식)
+    # 예: 인텔(소켓1851), AMD(소켓AM5), 소켓1700
+    if 'socket' not in specs:
+        socket_match = re.search(r'(소켓[\w\d\+]+)', full_text) # \w+ for AM5
+        if socket_match:
+            specs['socket'] = socket_match.group(1)
+    
+    # 코드네임 (기존 로직)
+    if 'codename' not in specs:
+        codename_match = re.search(r'\(([^)]*(?:레이크|릿지|리프레시|라파엘|버미어|피카소|세잔|시마다 픽|피닉스|Zen\d+)[^)]*)\)', full_text)
+        if codename_match:
+            specs['codename'] = codename_match.group(1)
+    
+    # CPU 시리즈 (기존 로직)
+    if 'cpu_series' not in specs:
+        # '세대' 또는 '(Zen5)' 같은 코드네임도 시리즈로 간주
+        series_match = re.search(r'(\d+세대|\(Zen\d+\))', full_text)
+        if series_match:
+            specs['cpu_series'] = series_match.group(1)
+        elif 'codename' in specs: # 코드네임을 시리즈로 활용
+            specs['cpu_series'] = specs['codename']
 
-    # 코드네임 (괄호 안 형식 우선 추출, 예: (애로우레이크))
-    codename_match = re.search(r'\(([^)]*(?:레이크|릿지|리프레시|라파엘|버미어|피카소|세잔|시마다 픽|피닉스|Zen\d+)[^)]*)\)', full_text)
-    if codename_match:
-        specs['codename'] = codename_match.group(1)
-        
-    # CPU 시리즈 (예: 14세대, 6세대)
-    series_match = re.search(r'(\d+세대)', full_text)
-    if series_match:
-        specs['cpu_series'] = series_match.group(1)
+    # CPU 종류 (기존 로직)
+    if 'cpu_class' not in specs:
+        class_match = re.search(r'(코어\s?(?:울트라|i)\d+|라이젠\s?\d)', name, re.I)
+        if class_match:
+            specs['cpu_class'] = class_match.group(1).replace(' ', '')
 
-    # CPU 종류 (상품명에서 추출)
-    class_match = re.search(r'(코어\s?(?:울트라|i)\d+|라이젠\s?\d)', name, re.I)
-    if class_match:
-        specs['cpu_class'] = class_match.group(1).replace(' ', '')
-
-    # 내장그래픽
-    if '내장그래픽' in full_text:
-        if '미탑재' in full_text:
-            specs['integrated_graphics'] = '미탑재'
-        elif '탑재' in full_text:
-            specs['integrated_graphics'] = '탑재'
+    # 내장그래픽 (기존 로직 + 보완)
+    if 'integrated_graphics' not in specs:
+        if '내장그래픽' in full_text:
+            if '미탑재' in full_text:
+                specs['integrated_graphics'] = '미탑재'
+            elif '탑재' in full_text:
+                specs['integrated_graphics'] = '탑재'
+        elif 'graphics_model' in specs: # 그래픽 모델이 있으면 '탑재'로 간주
+             specs['integrated_graphics'] = '탑재'
             
     return specs
 
