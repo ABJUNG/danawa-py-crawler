@@ -1127,12 +1127,15 @@ def extract_benchmark_scores(raw_text):
     return results[:10]
 
 # --- (신규) CPU 벤치마크 수집 함수들 ---
-def scrape_cinebench_r23(page, cpu_name, conn, part_id, category_name='CPU'):
+def scrape_cinebench_r23(browser, cpu_name, conn, part_id, category_name='CPU'):
     """
     render4you.com에서 Cinebench R23 점수 수집 (Multi/Single)
     테이블 구조: thead에 Manufactur, Modell, R20, R23, 2024
     tbody tr에 td 순서: 제조사, 모델명, R20, R23, 2024
     """
+
+    new_page = None # 새 페이지 객체 초기화
+
     try:
         # CPU 모델명 추출 (7500F, 7800X3D 등)
         cpu_model_match = re.search(r'(\d{3,5}\w*(?:F|K|X|G|3D)*|\d{3}[K])', cpu_name, re.I)
@@ -1165,8 +1168,12 @@ def scrape_cinebench_r23(page, cpu_name, conn, part_id, category_name='CPU'):
         url = "https://www.render4you.com/cinebench-benchmark-database"
         print(f"      -> Cinebench R23 검색: {url} (필터: {search_term_full})")
         
-        page.goto(url, wait_until='networkidle', timeout=15000)
-        page.wait_for_timeout(3000)  # 페이지 로딩 대기 증가
+        # 새 탭(페이지) 생성
+        new_page = browser.new_page(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
+        )
+        new_page.goto(url, wait_until='networkidle', timeout=15000)
+        new_page.wait_for_timeout(3000)  # 페이지 로딩 대기 증가
         
         # 검색 입력 필드 찾기 및 입력 (여러 시도)
         search_attempted = False
@@ -1179,10 +1186,10 @@ def scrape_cinebench_r23(page, cpu_name, conn, part_id, category_name='CPU'):
             'input[aria-controls*="t"]'
         ]:
             try:
-                search_input = page.locator(selector)
+                search_input = new_page.locator(selector)
                 if search_input.count() > 0:
                     search_input.first.fill(search_term_num)
-                    page.wait_for_timeout(3000)  # 필터링 대기 시간 증가
+                    new_page.wait_for_timeout(3000)  # 필터링 대기 시간 증가
                     search_attempted = True
                     break
             except:
@@ -1192,8 +1199,8 @@ def scrape_cinebench_r23(page, cpu_name, conn, part_id, category_name='CPU'):
             print(f"        -> (정보) 검색 필드를 찾지 못해 전체 테이블 스캔")
         
         # 페이지 재로드 후 HTML 가져오기
-        page.wait_for_timeout(2000)
-        html = page.content()
+        new_page.wait_for_timeout(2000) # page. -> new_page.
+        html = new_page.content() # page. -> new_page.
         soup = BeautifulSoup(html, 'lxml')
         
         # 테이블 찾기 (여러 선택자 시도)
@@ -1328,12 +1335,17 @@ def scrape_cinebench_r23(page, cpu_name, conn, part_id, category_name='CPU'):
             print(f"        -> (정보) Cinebench R23 점수를 찾지 못했습니다. (검색어: {search_term_full})")
     except Exception as e:
         print(f"        -> (경고) Cinebench R23 수집 중 오류: {type(e).__name__} - {str(e)[:100]}")
+    finally:
+    # 작업 완료 후 새 탭 닫기
+        if new_page:
+            new_page.close()
 
-def scrape_geekbench_v6(page, cpu_name, conn, part_id):
+def scrape_geekbench_v6(browser, cpu_name, conn, part_id):
     """
     browser.geekbench.com에서 Geekbench v6 싱글코어/멀티코어 점수 수집
     /search?q= 형식 사용, Windows 최신 결과 우선
     """
+    new_page = None # 새 페이지 객체 초기화
     try:
         from datetime import datetime
         
@@ -1380,10 +1392,14 @@ def scrape_geekbench_v6(page, cpu_name, conn, part_id):
         search_url = f"https://browser.geekbench.com/search?q={quote_plus(search_term)}"
         print(f"      -> Geekbench v6 검색: {search_url}")
         
-        page.goto(search_url, wait_until='networkidle', timeout=15000)
-        page.wait_for_timeout(3000)
+        # 새 탭(페이지) 생성
+        new_page = browser.new_page(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
+        )
+        new_page.goto(search_url, wait_until='networkidle', timeout=15000)
+        new_page.wait_for_timeout(3000)
         
-        html = page.content()
+        html = new_page.content() # page. -> new_page.
         soup = BeautifulSoup(html, 'lxml')
         
         # 검색 결과 항목 찾기 (.list-col-inner)
@@ -1522,6 +1538,10 @@ def scrape_geekbench_v6(page, cpu_name, conn, part_id):
             
     except Exception as e:
         print(f"        -> (경고) Geekbench v6 수집 중 오류: {type(e).__name__} - {str(e)[:100]}")
+    finally:
+        # 작업 완료 후 새 탭 닫기
+        if new_page:
+            new_page.close()
 
 def scrape_blender_median(page, cpu_name, conn, part_id):
     """
@@ -2012,8 +2032,9 @@ def _normalize_gpu_model(raw_name: str) -> tuple[str, str]:
     common = f"GPU {t}" if isinstance(t, str) else ' '.join(t)
     return common, (t if isinstance(t, str) else '')
 
-def scrape_3dmark_generic(page, gpu_name, conn, part_id, test_name: str, url: str):
+def scrape_3dmark_generic(browser, gpu_name, conn, part_id, test_name: str, url: str):
     """3DMark 필터를 사용하여 GPU Graphics Score의 Average Score를 수집."""
+    new_page = None # 새 페이지 객체 초기화
     try:
         common_label, token = _normalize_gpu_model(gpu_name)
         if not token:
@@ -2053,6 +2074,11 @@ def scrape_3dmark_generic(page, gpu_name, conn, part_id, test_name: str, url: st
         except Exception as e:
             print(f"        -> (정보) GPU ID 검색 실패: {type(e).__name__}")
         
+        # 새 탭(페이지) 생성
+        new_page = browser.new_page(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
+        )
+
         # URL 파라미터 직접 구성
         if gpu_id:
             # URL 해시 파라미터 구성
@@ -2083,73 +2109,70 @@ def scrape_3dmark_generic(page, gpu_name, conn, part_id, test_name: str, url: st
             )
             
             # URL로 직접 이동
-            page.goto(search_url_with_params, wait_until='load', timeout=90000)
-            page.wait_for_timeout(10000)  # AJAX 로딩 대기
+            new_page.goto(search_url_with_params, wait_until='load', timeout=90000) # page. -> new_page.
+            new_page.wait_for_timeout(10000)  # AJAX 로딩 대기 # page. -> new_page.
         else:
             # GPU ID를 찾지 못한 경우 기존 방식 사용
             main_url = "https://www.3dmark.com/search"
-            page.goto(main_url, wait_until='load', timeout=45000)
-            page.wait_for_timeout(8000)
+            new_page.goto(main_url, wait_until='load', timeout=45000) # page. -> new_page.
+            new_page.wait_for_timeout(8000) # page. -> new_page.
             
-            # 고급 검색 모드로 전환
+            # [수정] 이하 모든 page. 로직을 new_page. 로 변경
             try:
-                # URL 해시로 고급 검색 모드 활성화
-                page.evaluate(f"window.location.hash = '#advanced?test={quote(test_code)}&scoreType=graphicsScore'")
-                page.wait_for_timeout(3000)
+                new_page.evaluate(f"window.location.hash = '#advanced?test={quote(test_code)}&scoreType=graphicsScore'")
+                new_page.wait_for_timeout(3000)
             except:
                 pass
             
-            # Benchmark 필터 선택 (#resultTypeId)
             try:
-                result_type_select = page.locator('#resultTypeId')
+                result_type_select = new_page.locator('#resultTypeId')
                 result_type_select.wait_for(state='visible', timeout=10000)
                 result_type_select.select_option(value=test_code)
-                page.wait_for_timeout(2000)
+                new_page.wait_for_timeout(2000)
                 print(f"        -> (디버그) Benchmark 필터 설정: {test_code}")
             except Exception as e:
                 print(f"        -> (정보) Benchmark 필터 설정 실패: {type(e).__name__}")
             
             # Score 필터에서 Graphics Score 선택 (#scoreType)
             try:
-                page.wait_for_timeout(2000)  # scoreType이 동적으로 채워지므로 대기
-                score_type_select = page.locator('#scoreType')
+                new_page.wait_for_timeout(2000)  # scoreType이 동적으로 채워지므로 대기
+                score_type_select = new_page.locator('#scoreType')
                 score_type_select.wait_for(state='visible', timeout=10000)
                 score_type_select.select_option(value='graphicsScore')
-                page.wait_for_timeout(2000)
+                new_page.wait_for_timeout(2000)
                 print(f"        -> (디버그) Score 필터 설정: graphicsScore")
             except Exception as e:
                 print(f"        -> (정보) Score 필터 설정 실패: {type(e).__name__}")
             
             # GPU 필터에서 GPU 모델 검색 및 선택 (#gpuName)
             try:
-                gpu_name_input = page.locator('#gpuName')
+                gpu_name_input = new_page.locator('#gpuName')
                 gpu_name_input.wait_for(state='visible', timeout=10000)
                 gpu_name_input.fill(token)
-                page.wait_for_timeout(3000)  # 자동완성 대기
+                new_page.wait_for_timeout(3000)  # 자동완성 대기
                 
                 # 자동완성 리스트에서 GPU 선택 (.gpuid-list li.list-item)
-                gpu_list_items = page.locator('.gpuid-list li.list-item')
+                gpu_list_items = new_page.locator('.gpuid-list li.list-item')
                 if gpu_list_items.count() > 0:
                     for i in range(min(gpu_list_items.count(), 10)):
                         item = gpu_list_items.nth(i)
                         item_text = item.text_content()
                         if token.upper() in item_text.upper():
                             item.click()
-                            page.wait_for_timeout(3000)
+                            new_page.wait_for_timeout(3000)
                             print(f"        -> (디버그) GPU 선택: {item_text[:50]}")
                             break
             except Exception as e:
                 print(f"        -> (정보) GPU 필터 설정 실패: {type(e).__name__}")
             
             # 필터 변경 시 자동으로 검색이 실행되므로 결과 대기
-            page.wait_for_timeout(5000)
+            new_page.wait_for_timeout(5000)
         
         # Average Score 추출 (#medianScore) - 여러 번 시도
         avg_score = None
         for attempt in range(3):  # 최대 3번 시도
             try:
-                # medianScore 요소가 나타날 때까지 대기
-                median_score_element = page.locator('#medianScore')
+                median_score_element = new_page.locator('#medianScore') # page. -> new_page.
                 median_score_element.wait_for(state='visible', timeout=10000)
                 
                 median_text = median_score_element.text_content().strip()
@@ -2163,7 +2186,7 @@ def scrape_3dmark_generic(page, gpu_name, conn, part_id, test_name: str, url: st
                     except ValueError:
                         pass
             except:
-                page.wait_for_timeout(3000)  # 재시도 전 대기
+                new_page.wait_for_timeout(3000)  # 재시도 전 대기
         
         if avg_score:
             # Average Score 저장
@@ -2172,7 +2195,7 @@ def scrape_3dmark_generic(page, gpu_name, conn, part_id, test_name: str, url: st
             return
         
         # 대체 방법: HTML에서 직접 추출
-        html = page.content()
+        html = new_page.content()
         soup = BeautifulSoup(html, 'lxml')
         
         # #medianScore 요소 찾기
@@ -2212,6 +2235,10 @@ def scrape_3dmark_generic(page, gpu_name, conn, part_id, test_name: str, url: st
         print(f"        -> (정보) 3DMark {test_name} Average Score를 찾지 못했습니다.")
     except Exception as e:
         print(f"        -> (경고) 3DMark {test_name} 수집 중 오류: {type(e).__name__} - {str(e)[:100]}")
+    finally:
+        # 작업 완료 후 새 탭 닫기
+        if new_page:
+            new_page.close()
 
 def scrape_3dmark_timespy(page, cpu_name, conn, part_id):
     """
@@ -2294,7 +2321,7 @@ def scrape_3dmark_timespy(page, cpu_name, conn, part_id):
 
 # (crawler.py 파일의 1238행부터 시작)
 
-def scrape_category(page, category_name, query, collect_reviews=False, collect_benchmarks=False):
+def scrape_category(browser, page, category_name, query, collect_reviews=False, collect_benchmarks=False):
     """
     카테고리별 크롤링 함수
     
@@ -2525,15 +2552,15 @@ def scrape_category(page, category_name, query, collect_reviews=False, collect_b
 
                             # --- 👇 [신규] 3대 벤치마크 수집 (Cinebench, Geekbench, Blender) ---
                             if collect_benchmarks and category_name == 'CPU':
-                                print(f"         -> 벤치마크 수집 시도...")
-                                # (1) Cinebench R23 (render4you.com)
-                                scrape_cinebench_r23(page, name, conn, part_id, category_name)
+                                print(f"             -> 벤치마크 수집 시도...")
+                                # [수정] page 대신 browser 전달
+                                scrape_cinebench_r23(browser, name, conn, part_id, category_name)
                                 time.sleep(2)
-                                # (2) Geekbench v6 (browser.geekbench.com)
-                                scrape_geekbench_v6(page, name, conn, part_id)
+                                # [수정] page 대신 browser 전달
+                                scrape_geekbench_v6(browser, name, conn, part_id)
                                 time.sleep(2)
-                                # (3) Blender Median Score (opendata.blender.org)
-                                scrape_blender_median(page, name, conn, part_id)
+                                # (blender_median은 requests 사용 - 수정 불필요)
+                                scrape_blender_median(page, name, conn, part_id) 
                                 time.sleep(2)
                                 
                                 print(f"         -> 벤치마크 수집 완료.")
@@ -2557,18 +2584,20 @@ def scrape_category(page, category_name, query, collect_reviews=False, collect_b
                                     # 벤치마크만 건너뛰고, 나머지 저장/커밋은 계속 진행
                                     pass
                                 else: # 👈 [수정] skip_gpu가 False일 때만 벤치마크 수집
-                                    # (1) Blender GPU Median (opendata.blender.org)
+                                    # (blender_gpu는 requests 사용 - 수정 불필요)
                                     scrape_blender_gpu(page, common_label, conn, part_id)
                                     time.sleep(2)
-                                    # (2) 3DMark Fire Strike / Time Spy / Port Royal (랭킹/리더보드 페이지)
-                                    # 주의: 실제 랭킹 URL은 제품/테스트별로 다를 수 있어, 기본 엔트리 포인트로 접근 후 텍스트 기반 파싱을 수행
-                                    scrape_3dmark_generic(page, common_label, conn, part_id, 'Fire Strike', 'https://www.3dmark.com/search#advanced/fs')
-                                    page.goto("about:blank")
+                                    # [수정] page 대신 browser 전달
+                                    scrape_3dmark_generic(browser, common_label, conn, part_id, 'Fire Strike', 'https://www.3dmark.com/search#advanced/fs')
+                                    # [수정] page.goto 대신 새 탭을 사용하므로 about:blank 불필요
+                                    # page.goto("about:blank") 
                                     time.sleep(2)
-                                    scrape_3dmark_generic(page, common_label, conn, part_id, 'Time Spy', 'https://www.3dmark.com/search#advanced/spy')
-                                    page.goto("about:blank")
+                                    # [수정] page 대신 browser 전달
+                                    scrape_3dmark_generic(browser, common_label, conn, part_id, 'Time Spy', 'https://www.3dmark.com/search#advanced/spy')
+                                    # page.goto("about:blank")
                                     time.sleep(2)
-                                    scrape_3dmark_generic(page, common_label, conn, part_id, 'Port Royal', 'https://www.3dmark.com/search#advanced/pr')
+                                    # [수정] page 대신 browser 전달
+                                    scrape_3dmark_generic(browser, common_label, conn, part_id, 'Port Royal', 'https://www.3dmark.com/search#advanced/pr')
                                     time.sleep(2)
 
                             # 2. DB에 저장 (기존)
@@ -2608,10 +2637,10 @@ def scrape_category(page, category_name, query, collect_reviews=False, collect_b
                             review_exists = review_exists_result.scalar() == 1 # (True 또는 False)
 
                             if not review_exists:
-                                print(f"         -> 퀘이사존 리뷰 없음, 수집 시도...") # 4칸 -> 6칸
-                                # (신규) category_name과 detailed_specs를 인자로 추가 전달
-                                scrape_quasarzone_reviews(page, conn, sql_review, part_id, name, category_name, detailed_specs)
-                            # else:
+                                    print(f"             -> 퀘이사존 리뷰 없음, 수집 시도...") # 4칸 -> 6칸
+                                    # [수정] page 대신 browser 전달
+                                    scrape_quasarzone_reviews(browser, conn, sql_review, part_id, name, category_name, detailed_specs)
+
                                 # (선택적) 이미 리뷰가 있다면 건너뛰었다고 로그 표시
                                 # print(f"     -> (건너뜀) 이미 퀘이사존 리뷰가 수집된 상품입니다.")
 
@@ -2663,7 +2692,7 @@ def run_crawler(collect_reviews=False, collect_benchmarks=False):
                 print(f"--- (경고) 퀘이사존 메인 페이지 방문 실패 (무시하고 계속): {e}")
 
         for category_name, query in CATEGORIES.items():
-            scrape_category(page, category_name, query, collect_reviews, collect_benchmarks)
+            scrape_category(browser, page, category_name, query, collect_reviews, collect_benchmarks)
         browser.close()
         print("\n모든 카테고리 데이터 수집을 완료했습니다.")
 
@@ -2708,10 +2737,11 @@ def get_search_keyword(part_name, category_name, detailed_specs):
     return search_query
 
 # --- (수정) 퀘이사존 리뷰 크롤링 함수 (봇 우회 강화) ---
-def scrape_quasarzone_reviews(page, conn, sql_review, part_id, part_name, category_name, detailed_specs):
+def scrape_quasarzone_reviews(browser, conn, sql_review, part_id, part_name, category_name, detailed_specs):
     """
     (봇 우회 강화) ... (중략)
     """
+    new_page = None # 새 페이지 객체 초기화
     try:
         search_keyword = get_search_keyword(part_name, category_name, detailed_specs)
         if not search_keyword:
@@ -2724,22 +2754,20 @@ def scrape_quasarzone_reviews(page, conn, sql_review, part_id, part_name, catego
             f"&keyword={quote_plus(search_keyword)}&kind=subject"
         )
 
-        print(f"        -> 퀘이사존 공식기사 검색 (키워드: {search_keyword}): {q_url}") # 6칸 -> 8칸
-        # (중복된 print문 한 줄 삭제)
+        print(f"         -> 퀘이사존 공식기사 검색 (키워드: {search_keyword}): {q_url}") # 6칸 -> 8칸
         try:
-            page.goto(q_url, wait_until='networkidle', timeout=30000)
+            # [수정] 새 탭(페이지) 생성
+            new_page = browser.new_page(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
+            )
+            new_page.goto(q_url, wait_until='networkidle', timeout=30000) # page. -> new_page.
         except Exception as e:
-            print(f"        -> (오류) 검색 페이지 로딩 실패: {e}") # 6칸 -> 8칸
+            print(f"         -> (오류) 검색 페이지 로딩 실패: {e}") # 6칸 -> 8칸
             return
 
-        # 가벼운 스크롤로 동적 로딩 유도
-        page.mouse.wheel(0, 1200)
-        page.wait_for_timeout(500)
-
-        links_selector = (
-            'a[href*="/bbs/qc_qsz/views/"], '
-            'a[href*="/bbs/qc_bench/views/"]'
-        )
+        # [수정] 이하 모든 page. 로직을 new_page. 로 변경
+        new_page.mouse.wheel(0, 1200)
+        new_page.wait_for_timeout(500)
 
         links_selector = (
             'a[href*="/bbs/qc_qsz/views/"], '
@@ -2749,7 +2777,7 @@ def scrape_quasarzone_reviews(page, conn, sql_review, part_id, part_name, catego
         found_link = None
         try:
             # 1. 페이지에 있는 모든 리뷰 링크를 가져옵니다.
-            review_links = page.locator(links_selector).all() 
+            review_links = new_page.locator(links_selector).all() 
             
             # 2. 링크를 순회합니다.
             for link in review_links:
@@ -2775,19 +2803,19 @@ def scrape_quasarzone_reviews(page, conn, sql_review, part_id, part_name, catego
         if review_url and not review_url.startswith('https://'):
                 review_url = f"https://quasarzone.com{review_url}"
 
-        print(f"        -> [1/1] 리뷰 페이지 이동: {review_url}")
-        page.goto(review_url, wait_until='domcontentloaded', timeout=15000)
-        page.wait_for_timeout(800) # 봇 탐지 방지 대기
+        print(f"         -> [1/1] 리뷰 페이지 이동: {review_url}")
+        new_page.goto(review_url, wait_until='domcontentloaded', timeout=15000) # page. -> new_page.
+        new_page.wait_for_timeout(800) # page. -> new_page.
 
-        content_element = page.locator('.view-content')
+        content_element = new_page.locator('.view-content') # page. -> new_page.
         if not content_element.is_visible(timeout=5000):
-                print("        -> (오류) 리뷰 본문을 찾을 수 없습니다. (timeout)")
-        return
-            
+                print("         -> (오류) 리뷰 본문을 찾을 수 없습니다. (timeout)")
+                return # [수정] finally가 실행되도록 return
+                
         raw_text = content_element.inner_text()
         if len(raw_text) < 100:
-                print("        -> (건너뜀) 리뷰 본문이 너무 짧습니다. (100자 미만)")
-        return
+                print("         -> (건너뜀) 리뷰 본문이 너무 짧습니다. (100자 미만)")
+                return # [수정] finally가 실행되도록 return
 
         # CPU 모델명 추출 (7500F, 7800X3D 등)
         cpu_model = None
@@ -2815,6 +2843,10 @@ def scrape_quasarzone_reviews(page, conn, sql_review, part_id, part_name, catego
         
         print(f"      -> (경고) 퀘이사존 리뷰 수집 중 오류 발생 (무시함): {type(e).__name__} - {str(e)[:100]}...")
         pass
+    finally:
+        # [수정] 작업 완료 후 새 탭 닫기
+        if new_page:
+            new_page.close()
 
 if __name__ == "__main__":
     # 1. 명령줄 인수(sys.argv)에서 선택지를 읽어옵니다.
