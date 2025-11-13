@@ -9,12 +9,14 @@ from urllib.parse import quote_plus, quote
 import requests
 import statistics
 
+from google.cloud.sql.connector import Connector
+
 
 # --- 1. 기본 설정 ---
 # 이 부분의 값을 변경하여 크롤러 동작을 제어할 수 있습니다.
 
 # 크롤링할 페이지 수 (예: 2로 설정하면 각 카테고리별로 2페이지까지 수집)
-CRAWL_PAGES = 1
+CRAWL_PAGES = 2
 
 # 브라우저 창을 띄울지 여부 (True: 숨김, False: 보임 - 디버깅 및 안정성에 유리)
 HEADLESS_MODE = True
@@ -24,18 +26,19 @@ SLOW_MOTION = 50
 
 # --- 2. DB 설정 ---
 DB_USER = 'root'
-DB_PASSWORD = '1234'  # 실제 비밀번호로 수정
-DB_HOST = 'db'
-DB_PORT = '3306'
+DB_PASSWORD = 'fullstack'  # 실제 비밀번호로 수정
 DB_NAME = 'danawa'
+
+# [신규] Cloud SQL 인스턴스 연결 이름 (1단계에서 확인한 값)
+INSTANCE_CONNECTION_NAME = 'pcbuildproject-478007:asia-northeast3:danawa-db-instance'
 
 # --- 3. 크롤링 카테고리 ---
 CATEGORIES = {
-    #    'CPU': 'cpu', 
-    #    '쿨러': 'cooler&attribute=687-4015-OR%2C687-4017-OR',
-    #    '메인보드': 'mainboard',
-    #    'RAM': 'RAM',
-    #    '그래픽카드': 'vga',
+        'CPU': 'cpu', 
+        '쿨러': 'cooler&attribute=687-4015-OR%2C687-4017-OR',
+        '메인보드': 'mainboard',
+        'RAM': 'RAM',
+        '그래픽카드': 'vga',
         'SSD': 'ssd',
         'HDD': 'hdd', 
         '케이스': 'pc case',
@@ -43,11 +46,43 @@ CATEGORIES = {
 }
 
 # --- 5. SQLAlchemy 엔진 생성 ---
+
+import os
+from google.cloud.sql.connector import Connector, IPTypes
+
+# Cloud Run에서 설정할 환경 변수들
+DB_USER = os.environ.get("DB_USER") # 예: "root"
+DB_PASSWORD = os.environ.get("DB_PASS") # 예: "1234"
+DB_NAME = os.environ.get("DB_NAME") # 예: "danawa"
+INSTANCE_CONNECTION_NAME = os.environ.get("INSTANCE_CONNECTION_NAME") # 예: "my-project:region:my-instance"
+
+
 try:
-    engine = create_engine(f'mysql+mysqlconnector://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}')
+    connector = Connector()
+
+    # Cloud SQL 연결을 위한 헬퍼 함수
+    def getconn():
+        # IP 유형을 PRIVATE으로 설정 (VPC 사용 시) 또는 PUBLIC
+        conn = connector.connect(
+            INSTANCE_CONNECTION_NAME,
+            "pymysql",  # 👈 (수정) "mysql+mysqlconnector" -> "pymysql"
+            user=DB_USER,
+            password=DB_PASSWORD,
+            db=DB_NAME,
+            ip_type=IPTypes.PRIVATE 
+        )
+        return conn
+
+    # SQLAlchemy 엔진 생성 (연결 풀 사용)
+    engine = create_engine(
+        "mysql+pymysql://",  # 👈 (수정) "mysql+mysqlconnector://" -> "mysql+pymysql://"
+        creator=getconn,
+    )
+
     with engine.connect() as conn:
-        print("DB 연결 성공")
+        print("Cloud SQL DB 연결 성공")
         # 벤치마크 결과 테이블이 없으면 생성
+        
         create_bench_sql = text("""
         CREATE TABLE IF NOT EXISTS benchmark_results (
             id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -130,6 +165,9 @@ try:
             pass
 except Exception as e:
     print(f"DB 연결 실패: {e}")
+    # (디버깅을 위해 오류 상세 출력)
+    import traceback
+    traceback.print_exc()
     exit()
 
 def parse_cpu_specs(name, spec_string):

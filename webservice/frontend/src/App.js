@@ -8,7 +8,7 @@ const CATEGORIES = ['CPU', '쿨러', '메인보드', 'RAM', '그래픽카드', '
 const ITEMS_PER_PAGE = 21;
 
 // 백엔드 API 기본 URL 설정 (Docker 환경에서는 backend:8080, 로컬에서는 localhost:8080)
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8080';
+const API_BASE_URL = 'https://webservice-645190288825.asia-northeast3.run.app';
 
 // (FILTER_LABELS, FILTER_ORDER_MAP, generateSpecString 함수는 기존과 동일)
 const FILTER_LABELS = {
