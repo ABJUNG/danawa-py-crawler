@@ -1,16 +1,16 @@
 package com.danawa.webservice.service;
 
 import com.danawa.webservice.domain.Part;
-import com.danawa.webservice.domain.PartSpec; // 👈 1. (신규) PartSpec import
-import com.danawa.webservice.dto.PartResponseDto; // 👈 5단계에서 추가됨
+import com.danawa.webservice.domain.PartSpec;
+import com.danawa.webservice.dto.PartResponseDto;
 import com.danawa.webservice.repository.PartRepository;
-import com.danawa.webservice.repository.PartSpecRepository; // 👈 2. (신규) PartSpecRepository import
+import com.danawa.webservice.repository.PartSpecRepository;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
-// import jakarta.persistence.Query; // 👈 3. (삭제) 더 이상 Query를 직접 사용하지 않음
 import jakarta.persistence.criteria.Predicate;
+import jakarta.persistence.criteria.JoinType; // --- 1. (추가) JoinType import ---
 import lombok.RequiredArgsConstructor;
-import org.json.JSONObject; // 👈 4. (신규) JSON 파싱 라이브러리 import
+import org.json.JSONObject;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
@@ -19,9 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.MultiValueMap;
 
 import java.util.*;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-import java.util.stream.Collectors; // 👈 5.2 단계에서 추가됨
+import java.util.stream.Collectors;
 
 @Service
 @Transactional(readOnly = true)
@@ -29,10 +27,10 @@ import java.util.stream.Collectors; // 👈 5.2 단계에서 추가됨
 public class PartService {
 
     private final PartRepository partRepository;
-    private final PartSpecRepository partSpecRepository; // 👈 5. (신규) PartSpecRepository 주입
+    private final PartSpecRepository partSpecRepository;
     
     @PersistenceContext
-    private final EntityManager em; // (참고: 현재 코드에서는 em이 사용되지 않으나, 추후 필요할 수 있어 유지)
+    private final EntityManager em;
 
     // (필터 순서 정의 - 기존과 동일)
     private static final Map<String, List<String>> FILTERABLE_COLUMNS = Map.of(
@@ -45,7 +43,6 @@ public class PartService {
             "HDD", List.of("manufacturer", "disk_capacity", "rotation_speed", "buffer_capacity"),
             "케이스", List.of("manufacturer", "case_size", "supported_board", "cpu_cooler_height_limit", "vga_length"),
             "파워", List.of("manufacturer", "rated_output", "eighty_plus_cert", "cable_connection")
-            // (참고: App.js와 일관성을 위해 Python의 snake_case 키 이름으로 일부 수정했습니다.)
     );
 
     /**
@@ -95,7 +92,6 @@ public class PartService {
     }
 
     // (기존 getHeightRanges 함수는 JSON으로 대체되었으므로 삭제 또는 주석 처리)
-    // private Set<String> getHeightRanges() { ... }
 
 
     /**
@@ -156,6 +152,15 @@ public class PartService {
                 else if (allFilterKeys.contains(key)) { ... }
                 */
             }
+
+            // --- 2. (추가) 상세 스펙을 함께 조회하도록 Fetch Join 추가 ---
+            // N+1 문제를 방지하고 DTO가 PartSpec에 접근할 수 있도록 Eager Fetching을 강제합니다.
+            // (주의: count 쿼리에서는 fetch join을 하면 안 되므로, 실제 쿼리일 때만 적용)
+            if (query.getResultType() != Long.class && query.getResultType() != long.class) {
+                root.fetch("partSpec", JoinType.LEFT);
+            }
+            // --- 2. (추가 완료) ---
+
             return predicate;
         };
     }

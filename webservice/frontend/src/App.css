@@ -399,27 +399,51 @@ h1 {
     font-size: 1rem;
     font-weight: 700;
     margin: 0 0 0.5rem 0;
-    min-height: 3.2em;
-    line-height: 1.6em;
-    flex-grow: 1;
+    /* [수정] 카드 높이 일관성을 위해 min-height 고정 (약 2줄 분량) */
+    min-height: 2.8em; 
+    line-height: 1.4em;
+    /* [수정] 2줄 초과 시 ... 처리 */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    /* flex-grow: 1; 👈 이 속성은 삭제합니다 (가격 고정을 위해) */
     color: var(--text-color);
 }
 
-.part-specs {
-    font-size: 0.75rem;
-    color: var(--subtext-color);
-    margin: 0.25rem 0 0.75rem 0;
-    height: 2.4em;
-    line-height: 1.2em;
-    overflow: hidden;
-    font-weight: 400;
+.part-summary-specs {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 10px 0; /* 가격과의 간격 */
+  font-size: 13px;
+  color: #555;
+  line-height: 1.5;
+  
+  /* --- 👇 [핵심 수정] 8줄 분량으로 최소 높이 확보 --- */
+  /* (8줄 * 1.5 * 13px) = 156px */
+  min-height: 156px; 
+  /* --- [수정 완료] --- */
+
+  /* 다크 모드 스펙 색상 */
+  .dark & {
+    color: #bbb;
+  }
+}
+
+.part-summary-specs li {
+  /* 스펙이 길어지면 ...으로 자름 */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .part-price {
   font-size: 1.25rem;
   font-weight: 700;
-  color: var(--text-color); /* 테마의 기본 텍스트 색상을 사용하도록 변경 */
+  color: var(--text-color);
   margin: 0 0 0.75rem 0;
+  margin-top: auto; /* 👈 [중요] 이 속성이 가격을 맨 아래로 내립니다 */
 }
 
 .part-reviews {

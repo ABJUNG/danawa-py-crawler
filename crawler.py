@@ -5,15 +5,16 @@ from sqlalchemy import create_engine, text
 import json
 import time
 from playwright_stealth import stealth_sync
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, quote
 import requests
+import statistics
 
 
 # --- 1. 기본 설정 ---
 # 이 부분의 값을 변경하여 크롤러 동작을 제어할 수 있습니다.
 
 # 크롤링할 페이지 수 (예: 2로 설정하면 각 카테고리별로 2페이지까지 수집)
-CRAWL_PAGES = 1 
+CRAWL_PAGES = 1
 
 # 브라우저 창을 띄울지 여부 (True: 숨김, False: 보임 - 디버깅 및 안정성에 유리)
 HEADLESS_MODE = True
@@ -30,9 +31,15 @@ DB_NAME = 'danawa'
 
 # --- 3. 크롤링 카테고리 ---
 CATEGORIES = {
-    'CPU': 'cpu', 
-    # '쿨러': 'cooler', '메인보드': 'mainboard', 'RAM': 'RAM',
-    # '그래픽카드': 'vga', 'SSD': 'ssd', 'HDD': 'hdd', '케이스': 'pc case', '파워': 'power'
+    #    'CPU': 'cpu', 
+    #    '쿨러': 'cooler&attribute=687-4015-OR%2C687-4017-OR',
+    #    '메인보드': 'mainboard',
+    #    'RAM': 'RAM',
+    #    '그래픽카드': 'vga',
+        'SSD': 'ssd',
+        'HDD': 'hdd', 
+        '케이스': 'pc case',
+        '파워': 'power'
 }
 
 # --- 5. SQLAlchemy 엔진 생성 ---
@@ -146,6 +153,7 @@ def parse_cpu_specs(name, spec_string):
 
     # 스레드 (복합 스레드 형식 포함, 예: 12+8스레드, 20스레드)
     # --- 여기가 핵심 수정 부분입니다! ---
+    # [수정] \d(숫자) 외에 +(플러스) 기호도 포함할 수 있도록 [\d\+] 사용
     thread_match = re.search(r'([\d\+]+)\s*스레드', full_text)
     if thread_match:
         specs['threads'] = thread_match.group(1).replace(' ', '') + '스레드'
@@ -156,7 +164,7 @@ def parse_cpu_specs(name, spec_string):
         specs['socket'] = '소켓' + socket_match.group(1)
 
     # 코드네임 (괄호 안 형식 우선 추출, 예: (애로우레이크))
-    codename_match = re.search(r'\(([^)]+(?:레이크|릿지|리프레시|라파엘|버미어|라파엘|피카소|세잔|시마다 픽|피닉스|Zen\d+))\)', full_text)
+    codename_match = re.search(r'\(([^)]*(?:레이크|릿지|리프레시|라파엘|버미어|피카소|세잔|시마다 픽|피닉스|Zen\d+)[^)]*)\)', full_text)
     if codename_match:
         specs['codename'] = codename_match.group(1)
         
@@ -180,139 +188,635 @@ def parse_cpu_specs(name, spec_string):
     return specs
 
 def parse_cooler_specs(name, spec_string):
-    """쿨러 파싱 로직 개선"""
+    """쿨러 파싱 로직 개선 (CPU 쿨러 / 시스템 쿨러 / 상세스펙 최종본)"""
     specs = {}
     if name: specs['manufacturer'] = name.split()[0]
     
     spec_parts = [part.strip() for part in spec_string.split('/')]
+    full_text = name + " / " + spec_string
+
+    # 1. product_type을 명시적으로 탐색 (기존 로직)
+    if 'CPU 쿨러' in spec_parts:
+        specs['product_type'] = 'CPU 쿨러'
+    elif any(s in spec_parts for s in ['시스템 쿨러', '시스템 팬']):
+        specs['product_type'] = '시스템 쿨러'
+    else:
+        # spec_parts에 명시적 타입이 없는 경우, 이름(name)이나 전체 텍스트에서 추론
+        if 'CPU 쿨러' in full_text:
+            specs['product_type'] = 'CPU 쿨러'
+        elif '시스템 쿨러' in full_text or '시스템 팬' in full_text:
+            if '시스템 팬 커넥터' not in full_text:
+                 specs['product_type'] = '시스템 쿨러'
+        else:
+            # 최후의 수단: 스펙 내용으로 추론 (CPU 쿨러 스펙이 보이면 CPU 쿨러로)
+            if any(s in spec_string for s in ['공랭', '수랭', '타워형', '쿨러 높이', '라디에이터']):
+                 specs['product_type'] = 'CPU 쿨러'
+            elif ' fan' in name.lower() or ' 팬' in name:
+                specs['product_type'] = '시스템 쿨러'
+            else:
+                specs['product_type'] = '기타 쿨러' # M.2 쿨러 등
+
+    # 2. 루프를 돌며 세부 스펙을 파싱합니다.
     for part in spec_parts:
-        if 'CPU' in part and '쿨러' in part: specs['product_type'] = 'CPU 쿨러'
-        elif '공랭' in part: specs['cooling_method'] = '공랭'
-        elif '수랭' in part: specs['cooling_method'] = '수랭'
-        elif '타워형' in part: specs['air_cooling_form'] = '타워형'
-        elif '플라워형' in part: specs['air_cooling_form'] = '플라워형'
-        elif '라디에이터' in part and '열' in part: specs['radiator_length'] = part
-        elif '쿨러 높이' in part: specs['cooler_height'] = part
-        elif '팬 크기' in part: specs['fan_size'] = part
-        elif '팬 커넥터' in part: specs['fan_connector'] = part
+        # "스펙명: 값" 형식에서 '값' 부분만 추출 (없으면 원본)
+        value = part.split(':', 1)[-1].strip()
+
+        # --- [A] 공통 스펙 (CPU 쿨러 & 시스템 쿨러) ---
+        if '팬 크기:' in part:
+            fan_size_match = re.search(r'(\d+mm)', part) 
+            if fan_size_match: specs['fan_size'] = fan_size_match.group(1) # "120mm"
+        
+        elif '팬 커넥터' in part or ('핀' in part and not value.startswith('12V') and '16핀' not in part): # "4핀", "3핀"
+            specs['fan_connector'] = value 
+        
+        elif 'RPM' in part:
+            specs['max_fan_speed'] = value # "1550 RPM" or "3000 RPM"
+        elif 'CFM' in part:
+            specs['max_airflow'] = value # "66.17 CFM" or "77 CFM"
+        elif 'mmH2O' in part:
+            specs['static_pressure'] = value # "1.53mmH₂O" or "6.9mmH₂O"
+        elif 'dBA' in part:
+            specs['max_fan_noise'] = value # "25.6dBA"
+        
+        elif 'A/S기간' in part or 'A/S 기간' in part:
+            specs['warranty_period'] = value # "6년" or "3년"
+        
+        elif '무게:' in part:
+            specs['weight'] = value # "185g" or "850g"
+
+        elif re.search(r'^\d+T$', part): # "25T"
+            specs['fan_thickness'] = part 
+
+        elif '베어링:' in part:
+            specs['fan_bearing'] = value # "FDB(유체)" or "S-FDB(유체)"
+
+        elif 'PWM 지원' in part:
+            specs['pwm_support'] = 'Y'
+            
+        elif 'LED' in part: 
+            specs['led_type'] = value # "non-LED"
+            
+        # --- [B] 시스템 쿨러 전용 스펙 ---
+        if specs.get('product_type') == '시스템 쿨러':
+            if '작동전압:' in part:
+                specs['operating_voltage'] = value # "팬 12V"
+            
+            elif '데이지체인' in part:
+                specs['daisy_chain'] = 'Y'
+            
+            elif '제로팬' in part or '0-dB' in part:
+                specs['zero_fan'] = 'Y'
+            
+            elif re.search(r'^\d+개$', part): # "3개", "5개"
+                specs['fan_count'] = part
+
+        # --- [C] CPU 쿨러 전용 스펙 ---
+        if specs.get('product_type') == 'CPU 쿨러':
+            if '공랭' in part: specs['cooling_method'] = '공랭'
+            elif '수랭' in part: specs['cooling_method'] = '수랭'
+            
+            # 공랭 폼팩터
+            elif '듀얼타워형' in part: specs['air_cooling_form'] = '듀얼타워형'
+            elif '싱글타워형' in part: specs['air_cooling_form'] = '싱글타워형'
+            elif '슬림형' in part: specs['air_cooling_form'] = '슬림형'
+            elif '일반형' in part: specs['air_cooling_form'] = '일반형'
+            elif '서버용' in part: specs['air_cooling_form'] = '서버용'
+            
+            # 라디에이터
+            elif ('라디에이터' in part or '열' in part):
+                radiator_match = re.search(r'(1열|2열|3열|4열)', part)
+                if radiator_match: specs['radiator_length'] = radiator_match.group(1)
+            
+            # TDP
+            elif 'TDP' in part and ('W' in part or 'w' in part):
+                specs['tdp'] = value # "260W"
+            
+            # Sockets
+            elif '인텔 소켓:' in part:
+                specs['intel_socket'] = value
+            elif 'AMD 소켓:' in part:
+                specs['amd_socket'] = value
+
+            # Dimensions
+            elif '가로:' in part:
+                specs['width'] = value
+            elif '세로:' in part:
+                specs['depth'] = value
+            elif '높이:' in part and '쿨러 높이' not in part: 
+                specs['height'] = value
+            elif '쿨러 높이:' in part:
+                specs['cooler_height'] = value # "155mm"
+                
+            # Fan Count (CPU specific)
+            elif re.search(r'팬 개수: \d+개', part):
+                specs['fan_count'] = value # "2개"
+
+    # 3. 후처리 (기존 로직)
+    if specs.get('product_type') == '시스템 쿨러' and 'fan_count' not in specs:
+        count_match = re.search(r'(\d)(?:IN1|PACK)', name, re.I)
+        if count_match:
+            specs['fan_count'] = f"{count_match.group(1)}개"
+            
+    if specs.get('cooling_method') != '수랭' and 'radiator_length' in specs:
+        del specs['radiator_length']
             
     return specs
 
 def parse_motherboard_specs(name, spec_string):
-    """메인보드 파싱 로직 개선"""
+    """메인보드 파싱 로직 개선 (사용자 요청 스펙 모두 반영)"""
     specs = {}
     if name: specs['manufacturer'] = name.split()[0]
 
+    # '/'로 나뉜 기본 스펙 리스트
     spec_parts = [part.strip() for part in spec_string.split('/')]
+    
+    # 원본 스펙 문자열 (복잡한 파싱용)
+    full_text = " / ".join(spec_parts)
+
+    # --- 1. 기본 스펙 (루프 파싱) ---
     for part in spec_parts:
         part_no_keyword = part.replace('CPU 소켓:','').strip()
-        if '소켓' in part: specs['socket'] = part_no_keyword
-        # 칩셋 (예: B760, X670) 패턴
-        elif re.search(r'^[A-Z]\d{3}[A-Z]*$', part): specs['chipset'] = part
-        # 폼팩터
-        elif 'ATX' in part or 'ITX' in part: specs['form_factor'] = part
-        # 메모리 종류
-        elif 'DDR' in part: specs['memory_spec'] = part
-        elif '메모리 슬롯' in part: specs['memory_slots'] = part
-        elif 'VGA 연결' in part or 'PCIe' in part: specs['vga_connection'] = part
-        elif 'M.2' in part: specs['m2_slots'] = part
-        elif '무선랜' in part or 'Wi-Fi' in part: specs['wireless_lan'] = part
+        
+        if '소켓' in part and 'CPU 소켓' in part: 
+            specs['socket'] = part_no_keyword
+        elif re.search(r'^[A-Z]\d{3}[A-Z]*$', part): 
+            specs['chipset'] = part
+        elif 'ATX' in part or 'ITX' in part: 
+            specs['form_factor'] = part
+        elif 'DDR' in part: 
+            specs['memory_spec'] = part
+        elif 'VGA 연결' in part or 'PCIe' in part and 'vga_connection' not in specs: 
+            specs['vga_connection'] = part
+        elif '메모리 슬롯' in part: 
+            specs['memory_slots'] = part
+        elif 'M.2:' in part: 
+            specs['m2_slots'] = part.split(':')[-1].strip()
+        elif 'SATA3:' in part:
+            specs['sata3_ports'] = part.split(':')[-1].strip()
+        elif 'ch(' in part or '.1ch' in part:
+            specs['audio_channels'] = part
+        elif '무선랜' in part or 'Wi-Fi' in part: 
+            specs['wireless_lan'] = 'Y' # 존재 여부
+        elif '블루투스' in part:
+            specs['bluetooth'] = 'Y' # 존재 여부
+
+    # --- 2. 정규식을 이용한 상세 스펙 추출 (전체 텍스트 기반) ---
+    
+    # 전원부
+    if (m := re.search(r'전원부:\s*([\d\+\s]+페이즈)', full_text)):
+        specs['power_phases'] = m.group(1)
+        
+    # 메모리
+    if (m := re.search(r'(\d+)MHz\s*\((PC\d-[\d]+)\)', full_text)):
+        specs['memory_clock'] = m.group(1) + 'MHz'
+    if (m := re.search(r'메모리 용량:\s*(최대 [\d,]+GB)', full_text)):
+        specs['memory_capacity_max'] = m.group(1)
+    if 'XMP' in full_text: specs['memory_profile_xmp'] = 'Y'
+    if 'EXPO' in full_text: specs['memory_profile_expo'] = 'Y'
+
+    # 확장슬롯
+    if (m := re.search(r'PCIe버전:\s*([\w\d\.,\s]+)', full_text)):
+        specs['pcie_versions'] = m.group(1).strip().rstrip(',')
+    if (m := re.search(r'PCIex16:\s*(\d+개)', full_text)):
+        specs['pciex16_slots'] = m.group(1)
+    if (m := re.search(r'PCIex1:\s*([\d+]+개)', full_text)):
+        specs['pciex1_slots'] = m.group(1)
+
+    # 저장장치
+    if (m := re.search(r'M.2 연결:\s*([\w\d\.,\s]+)', full_text)):
+        specs['m2_interface'] = m.group(1).strip().rstrip(',')
+
+    # 후면단자 (항목별 존재 여부 및 개수)
+    if (m := re.search(r'후면단자:\s*([^\/]+(?:\s*\/[^\/]+)*)', full_text)):
+        rear_io_text = m.group(1)
+        if 'HDMI' in rear_io_text: specs['rear_io_hdmi'] = 'Y'
+        if 'DP' in rear_io_text: specs['rear_io_dp'] = 'Y'
+        if 'USB 3' in rear_io_text: specs['rear_io_usb3'] = 'Y'
+        if 'USB 2.0' in rear_io_text: specs['rear_io_usb2'] = 'Y'
+        if 'RJ-45' in rear_io_text: specs['rear_io_rj45'] = 'Y'
+        if '오디오잭' in rear_io_text: specs['rear_io_audio'] = 'Y'
+        if 'PS/2' in rear_io_text: specs['rear_io_ps2'] = 'Y'
+        if 'BIOS플래시백' in rear_io_text: specs['rear_io_bios_flashback'] = 'Y'
             
+    if (m := re.search(r'USB A타입:\s*(\d+개)', full_text)):
+        specs['rear_io_usb_a'] = m.group(1)
+    if (m := re.search(r'USB C타입:\s*(\d+개)', full_text)):
+        specs['rear_io_usb_c'] = m.group(1)
+
+    # 랜/오디오
+    if (m := re.search(r'유선랜 칩셋:\s*([\w\s]+)', full_text)):
+        specs['lan_chipset'] = m.group(1).strip()
+    if (m := re.search(r'([\d\.]+)Gbps', full_text)):
+        specs['lan_speed'] = m.group(1) + 'Gbps'
+    if (m := re.search(r'RJ-45:\s*(\d+개)', full_text)):
+        specs['rj45_ports'] = m.group(1)
+    if (m := re.search(r'오디오 칩셋:\s*([\w\s]+)', full_text)):
+        specs['audio_chipset'] = m.group(1).strip()
+
+    # 내부 I/O
+    if 'USB3.0 헤더' in full_text: specs['internal_io_usb3'] = 'Y'
+    if 'USB2.0 헤더' in full_text: specs['internal_io_usb2'] = 'Y'
+    if 'USB3.0 Type C 헤더' in full_text: specs['internal_io_usb_c'] = 'Y'
+    if 'RGB 12V 4핀 헤더' in full_text: specs['internal_io_rgb_12v'] = 'Y'
+    if 'ARGB 5V 3핀 헤더' in full_text: specs['internal_io_argb_5v'] = 'Y'
+    if (m := re.search(r'시스템팬 4핀:\s*(\d+개)', full_text)):
+        specs['internal_io_sys_fan'] = m.group(1)
+    if 'TPM 헤더' in full_text: specs['internal_io_tpm'] = 'Y'
+    if '프론트오디오AAFP 헤더' in full_text: specs['internal_io_audio'] = 'Y'
+
+    # 특징
+    if '전원부 방열판' in full_text: specs['feature_vr_heatsink'] = 'Y'
+    if 'M.2 히트싱크' in full_text: specs['feature_m2_heatsink'] = 'Y'
+    if 'UEFI' in full_text: specs['feature_uefi'] = 'Y'
+    if (m := re.search(r'(\d{2}년 \d{1,2}월부로.*)', full_text)):
+        specs['product_note'] = m.group(1)
+
     return specs
 
 def parse_ram_specs(name, spec_string):
-    """RAM 파싱 로직 개선"""
+    """RAM 파싱 로직 개선 (사용자 요청 스펙 모두 반영)"""
     specs = {}
     if name: specs['manufacturer'] = name.split()[0]
+    
     spec_parts = [part.strip() for part in spec_string.split('/')]
+    full_text = " / ".join(spec_parts) # LED 시스템 등 '/'로 분리 안되는 스펙 검사용
+
     for part in spec_parts:
-        if '데스크탑용' in part or '노트북용' in part: specs['device_type'] = part
-        elif re.match(r'^DDR\d+$', part): specs['product_class'] = part
-        elif re.search(r'^\d+GB$|^\d+TB$', part): specs['capacity'] = part
-        elif re.search(r'^\d+개$', part): specs['ram_count'] = part
-        elif 'MHz' in part: specs['clock_speed'] = part
-        elif 'CL' in part: specs['ram_timing'] = part
-        elif '방열판' in part: specs['heatsink_presence'] = part
+        # --- 1. 기본 스펙 ---
+        if '데스크탑용' in part or '노트북용' in part: 
+            specs['device_type'] = part
+        elif re.match(r'^DDR\d+$', part): 
+            specs['product_class'] = part
+        elif re.search(r'^\d+GB$|^\d+TB$', part) and 'capacity' not in specs: 
+            specs['capacity'] = part
+        
+        # --- 2. 상세 스펙 (사용자 요청 기준) ---
+        
+        # 클럭
+        elif (m := re.search(r'(\d+MHz)\s*\((PC\d-[\d]+)\)', part)):
+            specs['clock_speed'] = m.group(1)
+            specs['pc_clock_speed'] = m.group(2)
+        elif 'MHz' in part and 'clock_speed' not in specs:
+            specs['clock_speed'] = part
+        
+        # 램타이밍
+        elif '램타이밍:' in part:
+            specs['ram_timing'] = part.split(':')[-1].strip()
+        
+        # 전압
+        elif (m := re.search(r'([\d\.]+)V$', part)):
+            specs['voltage'] = m.group(1) + 'V'
+            
+        # 램개수
+        elif '램개수:' in part:
+            specs['ram_count'] = part.split(':')[-1].strip()
+        
+        # LED
+        elif 'LED 라이트' in part:
+            specs['led_light'] = 'Y'
+        elif 'LED색상:' in part:
+            specs['led_color'] = part.split(':')[-1].strip()
+
+        # 프로파일
+        elif 'XMP' in part: # XMP3.0, XMP 등
+            specs['memory_profile_xmp'] = 'Y'
+        elif 'EXPO' in part:
+            specs['memory_profile_expo'] = 'Y'
+        
+        # 기타
+        elif '온다이ECC' in part:
+            specs['on_die_ecc'] = 'Y'
+        
+        # 방열판
+        elif '히트싱크:' in part:
+            specs['heatsink_presence'] = part.split(':')[-1].strip()
+        elif '방열판 색상:' in part:
+            specs['heatsink_color'] = part.split(':')[-1].strip()
+        elif '방열판' in part and 'heatsink_presence' not in specs: # '방열판'만 있는 경우
+            specs['heatsink_presence'] = 'Y'
+            
+        # 높이
+        elif '높이:' in part:
+            specs['height'] = part.split(':')[-1].strip()
+            
+        # 모듈제조사
+        elif '모듈제조사:' in part:
+            specs['module_manufacturer'] = part.split(':')[-1].strip()
+
+    # --- 3. 전체 텍스트 기반 스펙 (LED 시스템) ---
+    if (m := re.search(r'LED 시스템:\s*([^\/]+)', full_text)):
+        specs['led_system'] = m.group(1).strip()
 
     return specs
 
 def parse_vga_specs(name, spec_string):
-    """그래픽카드 파싱 로직 개선"""
+    """그래픽카드 파싱 로직 개선 (사용자 요청 스펙 모두 반영)"""
     specs = {}
     if name: specs['manufacturer'] = name.split()[0]
+    
     spec_parts = [part.strip() for part in spec_string.split('/')]
+    full_text = " / ".join(spec_parts) # '/'로 분리 안되는 스펙 검사용
+
+    # --- 1. 기본 스펙 (루프 파싱) ---
     for part in spec_parts:
-        if 'RTX' in part or 'GTX' in part: specs['nvidia_chipset'] = part
-        elif 'RX' in part: specs['amd_chipset'] = part
-        elif 'Arc' in part: specs['intel_chipset'] = part
-        elif 'PCIe' in part: specs['gpu_interface'] = part
-        elif 'GDDR' in part: specs['gpu_memory_capacity'] = part
-        elif '출력 단자' in part: specs['output_ports'] = part
-        elif '권장 파워' in part: specs['recommended_psu'] = part
-        elif '팬 개수' in part: specs['fan_count'] = part
-        elif '가로(길이)' in part: specs['gpu_length'] = part
+        if 'RTX' in part or 'GTX' in part: 
+            specs['nvidia_chipset'] = part
+        elif 'RX' in part: 
+            specs['amd_chipset'] = part
+        elif 'Arc' in part: 
+            specs['intel_chipset'] = part
+        elif 'PCIe' in part and 'gpu_interface' not in specs: 
+            specs['gpu_interface'] = part
+        elif 'GDDR' in part and 'gpu_memory_type' not in specs:
+            specs['gpu_memory_type'] = part # 예: GDDR7
+        elif 'GB' in part and 'TB' not in part and 'gpu_memory_capacity' not in specs:
+             # '용량'이 다른 스펙(예: HDD)과 겹칠 수 있으므로 GPU 파서 내에서만 사용
+            specs['gpu_memory_capacity'] = part # 예: 12GB
+        elif '팬 개수' in part or ('팬' in part and len(part) < 4):
+            specs['fan_count'] = part # 3팬, 2팬 등
+        
+    # --- 2. 정규식을 이용한 상세 스펙 추출 (전체 텍스트 기반) ---
+    
+    # 전력 및 크기
+    if (m := re.search(r'정격파워\s*([\w\d\s]+이상)', full_text)):
+        specs['recommended_psu'] = m.group(1)
+    if (m := re.search(r'전원 포트:\s*([^\/]+)', full_text)):
+        specs['power_connector'] = m.group(1).strip()
+    if (m := re.search(r'가로\(길이\):\s*([\d\.]+mm)', full_text)):
+        specs['gpu_length'] = m.group(1)
+    if (m := re.search(r'두께:\s*([\d\.]+mm)', full_text)):
+        specs['gpu_thickness'] = m.group(1)
+    if (m := re.search(r'사용전력:\s*([\w\d\s]+)', full_text)):
+        specs['power_consumption'] = m.group(1).strip()
+
+    # 클럭 및 프로세서
+    if (m := re.search(r'베이스클럭:\s*(\d+MHz)', full_text)):
+        specs['base_clock'] = m.group(1)
+    if (m := re.search(r'부스트클럭:\s*(\d+MHz)', full_text)):
+        specs['boost_clock'] = m.group(1)
+    if (m := re.search(r'OC클럭:\s*(\d+MHz)', full_text)):
+        specs['oc_clock'] = m.group(1)
+    if (m := re.search(r'스트림 프로세서:\s*([\d,]+)개', full_text)):
+        specs['stream_processors'] = m.group(1) + '개'
+
+    # 출력 및 지원
+    if (m := re.search(r'출력단자:\s*([^\/]+)', full_text)):
+        specs['output_ports'] = m.group(1).strip()
+    if '8K' in full_text: specs['support_8k'] = 'Y'
+    if 'HDR' in full_text: specs['support_hdr'] = 'Y'
+    if 'HDCP 2.3' in full_text: specs['support_hdcp'] = '2.3'
+    if (m := re.search(r'A/S\s*([\d년]+)', full_text)):
+        specs['warranty_period'] = m.group(1)
+
+    # 특징
+    if '제로팬' in full_text or '0-dB' in full_text:
+        specs['zero_fan'] = 'Y'
+    if '백플레이트' in full_text:
+        specs['has_backplate'] = 'Y'
+    if 'DrMOS' in full_text:
+        specs['feature_drmos'] = 'Y'
+    if 'LED 라이트' in full_text:
+        specs['led_light'] = 'Y'
+    if (m := re.search(r'MYSTIC LIGHT', full_text)): # LED 시스템은 예시가 하나라 하드코딩
+        specs['led_system'] = m.group(0)
+    if (m := re.search(r'구성품:\s*([^\/]+)', full_text)):
+        specs['accessories'] = m.group(1).strip()
 
     return specs
 
 def parse_ssd_specs(name, spec_string):
-    """SSD 파싱 로직 개선"""
+    """SSD 파싱 로직 개선 (사용자 요청 스펙 모두 반영)"""
     specs = {}
     if name: specs['manufacturer'] = name.split()[0]
+    
     spec_parts = [part.strip() for part in spec_string.split('/')]
+    full_text = " / ".join(spec_parts) # '/'로 분리 안되는 스펙 검사용
+
+    # --- 1. 기본 스펙 (루프 파싱) ---
     for part in spec_parts:
-        if 'M.2' in part or '2.5인치' in part: specs['form_factor'] = part
-        elif 'PCIe' in part or 'SATA' in part: specs['ssd_interface'] = part
-        elif ('TB' in part or 'GB' in part) and 'capacity' not in specs: specs['capacity'] = part
-        elif 'TLC' in part or 'QLC' in part or 'MLC' in part: specs['memory_type'] = part
-        elif 'RAM 탑재' in part: specs['ram_mounted'] = part
-        elif '순차읽기' in part: specs['sequential_read'] = part
-        elif '순차쓰기' in part: specs['sequential_write'] = part
-            
+        if 'M.2' in part or '2.5인치' in part or 'SATA' in part and 'form_factor' not in specs: 
+            specs['form_factor'] = part
+        elif 'PCIe' in part or 'SATA' in part and 'ssd_interface' not in specs: 
+            specs['ssd_interface'] = part
+        elif ('TLC' in part or 'QLC' in part or 'MLC' in part) and 'memory_type' not in specs: 
+            specs['memory_type'] = part
+        elif 'DRAM 탑재' in part or 'DRAM 미탑재' in part: 
+            specs['ram_mounted'] = part
+        elif 'DDR' in part and 'GB' in part:
+            specs['ram_spec'] = part
+        elif '컨트롤러:' in part:
+            specs['controller'] = part.split(':')[-1].strip()
+        
+        # 성능
+        elif '순차읽기:' in part:
+            specs['sequential_read'] = part.split(':')[-1].strip()
+        elif '순차쓰기:' in part:
+            specs['sequential_write'] = part.split(':')[-1].strip()
+        elif '읽기IOPS:' in part:
+            specs['read_iops'] = part.split(':')[-1].strip()
+        elif '쓰기IOPS:' in part:
+            specs['write_iops'] = part.split(':')[-1].strip()
+
+        # 지원기능
+        elif 'TRIM' in part: specs['support_trim'] = 'Y'
+        elif 'GC' in part: specs['support_gc'] = 'Y'
+        elif 'SLC캐싱' in part: specs['support_slc_caching'] = 'Y'
+        elif 'S.M.A.R.T' in part: specs['support_smart'] = 'Y'
+        elif 'DEVSLP' in part: specs['support_devslp'] = 'Y'
+        elif 'AES 암호화' in part: specs['support_aes'] = 'Y'
+        elif '전용 S/W' in part: specs['support_sw'] = 'Y'
+        
+        # 환경특성
+        elif 'MTBF:' in part:
+            specs['mtbf'] = part.split(':')[-1].strip()
+        elif 'TBW:' in part:
+            specs['tbw'] = part.split(':')[-1].strip()
+        elif 'PS5 호환' in part:
+            specs['ps5_compatible'] = 'Y'
+        elif 'A/S기간:' in part:
+            specs['warranty_period'] = part.split(':')[-1].strip()
+        elif '방열판' in part and 'heatsink_presence' not in specs:
+            specs['heatsink_presence'] = part # 방열판 미포함, 방열판 포함 등
+        elif '두께:' in part:
+            specs['ssd_thickness'] = part.split(':')[-1].strip()
+        elif (m := re.search(r'(\d+g)$', part)):
+            specs['ssd_weight'] = m.group(1)
+    
+    # --- 2. 루프로 잡기 힘든 스펙 (A/S 기간 등) ---
+    if 'warranty_period' not in specs:
+         if (m := re.search(r'A/S\s*([\w\d년\s,]+)', full_text)):
+            specs['warranty_period'] = m.group(1).strip()
+    if 'capacity' not in specs: # 'TB'/'GB'가 TBW와 겹칠 수 있으므로 마지막에 체크
+        for part in spec_parts:
+            # 'TB' 또는 'GB'를 포함하지만 'TBW'나 'DDR'(DRAM스펙)은 아닌 경우
+            if ('TB' in part or 'GB' in part) and 'TBW' not in part and 'DDR' not in part and 'capacity' not in specs:
+                specs['capacity'] = part
+                break
+
     return specs
 
 def parse_hdd_specs(name, spec_string):
-    """HDD 파싱 로직 개선"""
+    """HDD 파싱 로직 개선 (사용자 요청 스펙 모두 반영)"""
     specs = {}
     if name: specs['manufacturer'] = name.split()[0]
+    
     spec_parts = [part.strip() for part in spec_string.split('/')]
+    full_text = " / ".join(spec_parts) # '/'로 분리 안되는 스펙 검사용
+
     for part in spec_parts:
-        if any(s in part for s in ['BarraCuda', 'IronWolf', 'WD', 'P300']): specs['hdd_series'] = part
-        elif ('TB' in part or 'GB' in part): specs['disk_capacity'] = part
-        elif 'RPM' in part: specs['rotation_speed'] = part
-        elif '버퍼' in part: specs['buffer_capacity'] = part
-        elif 'A/S' in part: specs['hdd_warranty'] = part
-            
+        if 'HDD (' in part: # HDD (NAS용)
+            specs['product_class'] = part
+        elif 'cm' in part or '인치' in part: # 8.9cm(3.5인치)
+            specs['form_factor'] = part
+        elif ('TB' in part or 'GB' in part) and 'disk_capacity' not in specs: 
+            specs['disk_capacity'] = part
+        elif 'SATA' in part: # SATA3 (6Gb/s)
+            specs['hdd_interface'] = part
+        elif 'RPM' in part: # 7,200RPM
+            specs['rotation_speed'] = part
+        elif '메모리' in part or '버퍼' in part: # 메모리 512MB
+            specs['buffer_capacity'] = part
+        elif 'MB/s' in part: # 275MB/s
+            specs['transfer_rate'] = part
+        elif '기록방식:' in part:
+            specs['recording_method'] = part.split(':')[-1].strip()
+        elif '두께:' in part:
+            specs['hdd_thickness'] = part.split(':')[-1].strip()
+        elif '헬륨충전' in part:
+            specs['helium_filled'] = 'Y'
+        elif 'RV센서' in part:
+            specs['rv_sensor'] = 'Y'
+        elif '사용보증:' in part:
+            specs['mtbf'] = part.split(':')[-1].strip()
+        elif '소음' in part and 'dB' in part: # 소음(유휴/탐색): 28/32dB
+            specs['noise_level'] = part.split(':')[-1].strip()
+        elif 'A/S 정보:' in part:
+            specs['hdd_warranty'] = part.split(':')[-1].strip()
+    
+    # A/S 정보가 루프에서 안 잡혔을 경우
+    if 'hdd_warranty' not in specs:
+         if (m := re.search(r'A/S 정보:\s*([^\/]+)', full_text)):
+            specs['hdd_warranty'] = m.group(1).strip()
+
     return specs
 
 def parse_case_specs(name, spec_string):
-    """케이스 파싱 로직 개선"""
+    """케이스 파싱 로직 개선 (사용자 요청 스펙 모두 반영)"""
     specs = {}
     if name: specs['manufacturer'] = name.split()[0]
+    
     spec_parts = [part.strip() for part in spec_string.split('/')]
+    full_text = " / ".join(spec_parts) # '/'로 분리 안되는 스펙 검사용
+
+    # --- 1. 기본 스펙 (루프 파싱) ---
     for part in spec_parts:
-        if 'PC케이스' in part: specs['product_type'] = part
-        elif '타워' in part: specs['case_size'] = part
-        elif 'ATX' in part or 'ITX' in part: specs['supported_board'] = part
-        elif '강화유리' in part or '메쉬' in part: specs['side_panel'] = part
-        elif '파워 장착' in part: specs['psu_length'] = part
-        elif 'VGA 장착' in part or '그래픽카드 장착' in part: specs['vga_length'] = part
-        elif '쿨러 장착' in part or 'CPU 쿨러 장착' in part: specs['cpu_cooler_height_limit'] = part
-            
+        if '케이스' in part and '(' not in part and 'product_class' not in specs: # 'PC케이스' or 'M-ATX 케이스'
+            specs['product_class'] = part
+        elif '지원보드규격:' in part:
+            specs['supported_board'] = part.split(':')[-1].strip()
+        elif 'VGA' in part and ('mm' in part or '길이' in part) and 'vga_length' not in specs:
+            specs['vga_length'] = part.split(':')[-1].strip()
+        elif 'CPU' in part and ('mm' in part or '높이' in part) and 'cpu_cooler_height_limit' not in specs:
+            specs['cpu_cooler_height_limit'] = part.split(':')[-1].strip()
+        elif '타워' in part: # 미니타워, 빅타워 등
+            specs['case_size'] = part
+        elif '파워미포함' in part or '파워포함' in part:
+            specs['psu_included'] = part
+        elif '측면:' in part: # 측면 패널 타입: (Fallback)
+            specs['panel_side'] = part.split(':')[-1].strip()
+        elif '파워 장착 길이:' in part:
+            specs['psu_length'] = part.split(':')[-1].strip()
+        elif '파워 위치:' in part:
+            specs['psu_location'] = part.split(':')[-1].strip()
+        elif 'LED 색상:' in part:
+            specs['led_color'] = part.split(':')[-1].strip()
+
+    # --- 2. 정규식을 이용한 상세 스펙 추출 (전체 텍스트 기반) ---
+    
+    # 패널
+    if (m := re.search(r'전면 패널 타입:\s*([^\/]+)', full_text)):
+        specs['panel_front'] = m.group(1).strip()
+    if (m := re.search(r'측면 패널 타입:\s*([^\/]+)', full_text)):
+        specs['panel_side'] = m.group(1).strip() # 루프 파싱 덮어쓰기 (더 정확)
+
+    # 쿨러/튜닝
+    if (m := re.search(r'쿨링팬:\s*(총[\d]+개)', full_text)):
+        specs['cooling_fan_total'] = m.group(1)
+    if (m := re.search(r'LED팬:\s*([\d]+개)', full_text)):
+        specs['cooling_fan_led'] = m.group(1)
+    if (m := re.search(r'후면:\s*([^\/]+)', full_text)):
+        specs['cooling_fan_rear'] = m.group(1).strip()
+
+    # 크기
+    if (m := re.search(r'너비\(W\):\s*([\d\.]+mm)', full_text)):
+        specs['case_width'] = m.group(1)
+    if (m := re.search(r'깊이\(D\):\s*([\d\.]+mm)', full_text)):
+        specs['case_depth'] = m.group(1)
+    if (m := re.search(r'높이\(H\):\s*([\d\.]+mm)', full_text)):
+        specs['case_height'] = m.group(1)
+
     return specs
 
 def parse_power_specs(name, spec_string):
-    """파워 파싱 로직 개선"""
+    """파워 파싱 로직 개선 (사용자 요청 스펙 모두 반영)"""
     specs = {}
     if name: specs['manufacturer'] = name.split()[0]
+    
     spec_parts = [part.strip() for part in spec_string.split('/')]
+    full_text = " / ".join(spec_parts) # '/'로 분리 안되는 스펙 검사용
+
     for part in spec_parts:
-        if '파워' in part: specs['product_type'] = part
-        elif '정격출력' in part or ('W' in part and 'rated_output' not in specs): specs['rated_output'] = part
-        elif '80PLUS' in part: specs['eighty_plus_cert'] = part
-        elif 'ETA' in part: specs['eta_cert'] = part
-        elif '케이블연결' in part: specs['cable_connection'] = part
-        elif '16핀' in part: specs['pcie_16pin'] = part
+        if '파워' in part and 'ATX' in part and 'product_class' not in specs: 
+            specs['product_class'] = part # ATX 파워
+        elif 'W' in part and 'rated_output' not in specs: 
+            specs['rated_output'] = part # 850W
+        elif '80 PLUS' in part: 
+            specs['eighty_plus_cert'] = part # 80 PLUS 브론즈
+        elif '케이블연결:' in part:
+            specs['cable_connection'] = part.split(':')[-1].strip()
+        elif 'ETA인증:' in part:
+            specs['eta_cert'] = part.split(':')[-1].strip()
+        elif 'LAMBDA인증:' in part:
+            specs['lambda_cert'] = part.split(':')[-1].strip()
+        elif '+12V' in part and '레일' in part:
+            specs['plus_12v_rail'] = part # +12V 싱글레일
+        elif '+12V 가용률:' in part:
+            specs['plus_12v_availability'] = part.split(':')[-1].strip()
+        elif 'PFC' in part: # 액티브PFC
+            specs['pfc_circuit'] = part
+        elif 'PF(역률):' in part:
+            specs['pf_rate'] = part.split(':')[-1].strip()
+        elif 'mm 팬' in part: # 120mm 팬
+            specs['fan_size'] = part
+        elif '깊이:' in part:
+            specs['psu_depth'] = part.split(':')[-1].strip()
+        elif '무상' in part or 'A/S' in part and 'warranty_period' not in specs:
+            specs['warranty_period'] = part # 무상 7년
             
+        # 커넥터
+        elif '메인전원:' in part:
+            specs['main_connector'] = part.split(':')[-1].strip()
+        elif '보조전원:' in part:
+            specs['aux_connector'] = part.split(':')[-1].strip()
+        elif 'PCIe 16핀' in part:
+            specs['pcie_16pin'] = part.split(':')[-1].strip()
+        elif 'PCIe 8핀' in part:
+            specs['pcie_8pin'] = part.split(':')[-1].strip()
+        elif 'SATA:' in part:
+            specs['sata_connectors'] = part.split(':')[-1].strip()
+        elif 'IDE 4핀:' in part:
+            specs['ide_4pin_connectors'] = part.split(':')[-1].strip()
+            
+        # 부가기능
+        elif '대기전력 1W 미만' in part:
+            specs['feature_standby_power'] = 'Y'
+        elif '플랫케이블' in part:
+            specs['feature_flat_cable'] = 'Y'
+            
+    # 변경사항 (전체 텍스트에서 검색)
+    if (m := re.search(r'(\d{2}년 \d{1,2}월.*)', full_text)):
+        specs['product_note'] = m.group(1)
+
     return specs
 
 PARSER_MAP = {
@@ -1068,6 +1572,564 @@ def scrape_blender_median(page, cpu_name, conn, part_id):
     except Exception as e:
         print(f"        -> (경고) Blender Median Score 수집 중 오류: {type(e).__name__} - {str(e)[:100]}")
 
+def scrape_blender_gpu(page, gpu_name, conn, part_id):
+    """
+    opendata.blender.org에서 GPU Median Score 수집
+    DataTables API 사용: /benchmarks/query/?group_by=device_name&blender_version=4.5.0
+    정확한 GPU 모델명 매칭 (예: RTX 5060과 RTX 5060 Ti 구분)
+    """
+    try:
+        if not gpu_name:
+            return
+        # 공통 라벨/토큰 추출
+        common_label, search_token = _normalize_gpu_model(gpu_name)
+
+        # 중복 체크: 이미 데이터가 있으면 수집하지 않음
+        check_sql = text("""
+            SELECT EXISTS (
+                SELECT 1 FROM benchmark_results 
+                WHERE part_type = 'GPU'
+                AND cpu_model = :model 
+                AND source = 'blender_opendata'
+                AND test_name = 'Blender' 
+                AND test_version = '4.5.0'
+                AND scenario = 'Median GPU'
+            )
+        """)
+        exists_result = conn.execute(check_sql, {"model": common_label})
+        if exists_result.scalar() == 1:
+            print(f"        -> (건너뜀) Blender GPU Median 데이터가 이미 존재합니다.")
+            return
+
+        # 사용자 제공 URL 형식 사용
+        url = "https://opendata.blender.org/benchmarks/query/"
+        params = {
+            "group_by": "device_name",
+            "blender_version": "4.5.0",
+            "response_type": "datatables"
+        }
+        print(f"      -> Blender GPU Median 검색: {url}")
+
+        response = requests.get(url, params=params, timeout=20)
+        if response.status_code != 200:
+            print(f"        -> (경고) GPU API 응답 오류: {response.status_code}")
+            return
+
+        try:
+            data = response.json()
+        except:
+            print(f"        -> (경고) GPU JSON 파싱 실패")
+            return
+
+        if not isinstance(data, dict) or 'rows' not in data:
+            print(f"        -> (경고) GPU 잘못된 응답 구조")
+            return
+
+        columns = data.get('columns', [])
+        median_idx = None
+        device_idx = None
+        for i, col in enumerate(columns):
+            display_name = col.get('display_name', '') if isinstance(col, dict) else str(col)
+            if 'Median Score' in display_name or 'median' in display_name.lower():
+                median_idx = i
+            if 'Device Name' in display_name or 'device_name' in display_name.lower():
+                device_idx = i
+
+        if median_idx is None:
+            print(f"        -> (경고) GPU Median Score 컬럼을 찾지 못했습니다.")
+            return
+
+        rows = data.get('rows', [])
+        found = None
+        found_device = ''
+        
+        # 정확한 모델명 매칭을 위한 패턴 생성
+        # 예: "RTX 5060" -> "5060"이 포함되지만 "5060 Ti"는 제외
+        # 예: "RTX 5060 Ti" -> "5060 Ti"가 포함되어야 함
+        
+        # 매칭 패턴: common_label의 정확한 형태로 매칭
+        # "RTX 5060"을 찾을 때는 "5060"이 포함되지만 "5060 Ti"는 제외
+        # "RTX 5060 Ti"를 찾을 때는 "5060 Ti"가 포함되어야 함
+        def matches_gpu_model(device_name: str, label: str, token: str) -> bool:
+            """GPU 모델명이 정확히 매칭되는지 확인 (5060과 5060 Ti 구분)"""
+            if not token:
+                return False
+                
+            dev_upper = device_name.upper()
+            label_upper = label.upper()
+            
+            # common_label이 "RTX 5060 Ti"인 경우
+            if 'TI' in label_upper or 'SUPER' in label_upper:
+                # 정확히 "5060 Ti" 또는 "5060TI" 형태가 포함되어야 함
+                if (f"{token} TI" in dev_upper) or (f"{token}TI" in dev_upper):
+                    return True
+                # 또는 common_label 전체가 포함되어야 함
+                if label_upper.replace(' ', '') in dev_upper.replace(' ', ''):
+                    return True
+                return False
+            else:
+                # common_label이 "RTX 5060"인 경우 (Ti 없음)
+                # "5060"이 포함되어야 하지만 "5060 Ti"는 제외
+                if token in dev_upper:
+                    # "5060 Ti"가 포함되어 있으면 제외
+                    if (f"{token} TI" in dev_upper) or (f"{token}TI" in dev_upper):
+                        return False
+                    # "5060"만 포함되어 있으면 매칭
+                    return True
+                # 또는 common_label 전체가 포함되어야 함
+                if label_upper.replace(' ', '') in dev_upper.replace(' ', ''):
+                    # "5060 Ti"가 포함되어 있으면 제외
+                    if 'TI' in dev_upper and token in dev_upper:
+                        # "5060" 다음에 "TI"가 오는지 확인
+                        pattern = re.compile(rf"{re.escape(token)}\s*TI", re.IGNORECASE)
+                        if pattern.search(dev_upper):
+                            return False
+                    return True
+                return False
+        
+        for row in rows:
+            if not isinstance(row, list):
+                continue
+            dev = ''
+            if device_idx is not None and device_idx < len(row):
+                dev = str(row[device_idx])
+                if '<a' in dev:
+                    dev = re.sub(r'<[^>]+>', '', dev)
+                dev = dev.strip()
+
+            # 정확한 모델명 매칭
+            if matches_gpu_model(dev, common_label, search_token):
+                if median_idx < len(row):
+                    try:
+                        val = float(row[median_idx])
+                        if val > 0:
+                            found = val
+                            found_device = dev
+                            print(f"        -> (디버그) 매칭된 디바이스: {dev}")
+                            break
+                    except:
+                        pass
+
+        if not found:
+            print(f"        -> (정보) Blender GPU Median 점수를 찾지 못했습니다. (검색어: {common_label})")
+            return
+
+        sql_bench = text("""
+            INSERT INTO benchmark_results (
+                part_id, part_type, cpu_model, source, test_name, test_version, scenario,
+                metric_name, value, unit, review_url
+            ) VALUES (
+                :part_id, :part_type, :cpu_model, :source, :test_name, :test_version, :scenario,
+                :metric_name, :value, :unit, :review_url
+            )
+            ON DUPLICATE KEY UPDATE
+                value = VALUES(value),
+                created_at = CURRENT_TIMESTAMP
+        """)
+
+        conn.execute(sql_bench, {
+            "part_id": part_id,
+            "part_type": "GPU",
+            "cpu_model": common_label,  # 공통 컬럼 재사용 (모델명 저장)
+            "source": "blender_opendata",
+            "test_name": "Blender",
+            "test_version": "4.5.0",
+            "scenario": "Median GPU",
+            "metric_name": "Score",
+            "value": found,
+            "unit": "pts",
+            "review_url": f"{url}?{'&'.join([f'{k}={v}' for k, v in params.items()])}"
+        })
+        print(f"        -> Blender GPU Median: {found} ({found_device})")
+    except Exception as e:
+        print(f"        -> (경고) Blender GPU Median 수집 중 오류: {type(e).__name__} - {str(e)[:100]}")
+
+def _trimmed_median(scores: list[float], trim_ratio: float = 0.1) -> float:
+    """윈저라이즈/트리밍 기반 중앙값. 점수 리스트에서 상/하위 trim_ratio 비율을 잘라낸 후 중앙값 계산."""
+    if not scores:
+        return 0.0
+    scores_sorted = sorted(scores)
+    n = len(scores_sorted)
+    k = int(n * trim_ratio)
+    trimmed = scores_sorted[k:n - k] if n > 2 * k and k > 0 else scores_sorted
+    try:
+        return float(statistics.median(trimmed))
+    except:
+        return float(trimmed[len(trimmed)//2]) if trimmed else 0.0
+
+def _parse_scores_for_gpu(html: str, gpu_name: str) -> list[float]:
+    """3DMark 페이지 HTML에서 GPU 이름이 포함된 행/블록의 Graphics Score만 추출."""
+    soup = BeautifulSoup(html, 'lxml')
+    # GPU 식별: 이름의 숫자 토큰 기반
+    token_match = re.search(r"(\d{3,5})", gpu_name)
+    token = token_match.group(1) if token_match else None
+    if not token:
+        return []
+    
+    scores = []
+    token_upper = token.upper()
+    
+    # 방법 1: 테이블 구조에서 Graphics Score 컬럼 찾기
+    # 더 넓은 범위의 선택자 사용
+    rows = soup.select('table tbody tr, table tr, .result-row, .benchmark-row, [class*="result"], [class*="benchmark"], [class*="score"], tr[class*="row"], div[class*="row"]')
+    
+    for row in rows:
+        row_text = row.get_text(" ", strip=True)
+        
+        # GPU 모델 토큰이 포함되어 있는지 확인 (대소문자 무시)
+        if token_upper not in row_text.upper():
+            continue
+        
+        # 방법 1-1: "Graphics Score" 또는 "GPU Score" 텍스트와 함께 있는 숫자 찾기
+        graphics_score_patterns = [
+            r"Graphics\s+Score[:\s]*[=]?\s*(\d{4,6})",
+            r"GPU\s+Score[:\s]*[=]?\s*(\d{4,6})",
+            r"Graphics[:\s]*[=]?\s*(\d{4,6})",
+            r"Graphics\s*:\s*(\d{4,6})",
+            r"GPU\s*:\s*(\d{4,6})",
+        ]
+        
+        for pattern in graphics_score_patterns:
+            match = re.search(pattern, row_text, re.IGNORECASE)
+            if match:
+                try:
+                    val = int(match.group(1))
+                    if 1000 <= val <= 200000:  # 유효한 점수 범위
+                        scores.append(float(val))
+                        break  # 하나 찾으면 다음 행으로
+                except:
+                    pass
+        
+        # 방법 1-2: 테이블 셀에서 숫자 찾기 (Graphics 관련 헤더가 있는 컬럼)
+        cells = row.select('td, th, [class*="cell"], [class*="column"]')
+        if len(cells) >= 2:  # 최소 2개 컬럼이 있어야 함
+            # 첫 번째 셀에 GPU 모델명이 있고, 다른 셀에 점수가 있을 수 있음
+            for i, cell in enumerate(cells):
+                cell_text = cell.get_text(" ", strip=True)
+                # GPU 모델명이 포함된 셀 다음의 셀들에서 점수 찾기
+                if token_upper in cell_text.upper() and i < len(cells) - 1:
+                    # 다음 셀들에서 점수 찾기
+                    for j in range(i + 1, min(i + 5, len(cells))):  # 최대 4개 셀 확인
+                        score_cell = cells[j].get_text(" ", strip=True)
+                        # 4-6자리 숫자만 추출
+                        num_match = re.search(r'\b(\d{4,6})\b', score_cell)
+                        if num_match:
+                            try:
+                                val = int(num_match.group(1))
+                                if 1000 <= val <= 200000:
+                                    scores.append(float(val))
+                                    break
+                            except:
+                                pass
+    
+    # 방법 2: 전체 텍스트에서 "Graphics Score" 레이블 근처의 숫자 찾기
+    if len(scores) < 3:
+        text = soup.get_text(" ")
+        # "Graphics Score" 또는 "GPU Score" 다음에 오는 숫자 찾기
+        graphics_patterns = [
+            r"Graphics\s+Score[:\s]*[=]?\s*(\d{4,6})",
+            r"GPU\s+Score[:\s]*[=]?\s*(\d{4,6})",
+            r"Graphics[:\s]*[=]?\s*(\d{4,6})",
+        ]
+        
+        for pattern in graphics_patterns:
+            matches = re.finditer(pattern, text, re.IGNORECASE)
+            for match in matches:
+                # 매칭된 위치 근처(앞뒤 300자)에 GPU 토큰이 있는지 확인
+                start = max(0, match.start() - 300)
+                end = min(len(text), match.end() + 300)
+                context = text[start:end]
+                if token_upper in context.upper():
+                    try:
+                        val = int(match.group(1))
+                        if 1000 <= val <= 200000:
+                            scores.append(float(val))
+                    except:
+                        pass
+    
+    # 방법 3: GPU 모델명 근처의 모든 4-6자리 숫자를 후보로 추출 (더 관대한 방법)
+    if len(scores) < 3:
+        text = soup.get_text(" ")
+        # GPU 토큰 주변(앞뒤 500자)에서 모든 4-6자리 숫자 찾기
+        token_positions = []
+        for match in re.finditer(re.escape(token), text, re.IGNORECASE):
+            token_positions.append(match.start())
+        
+        for pos in token_positions:
+            start = max(0, pos - 500)
+            end = min(len(text), pos + 500)
+            context = text[start:end]
+            # 컨텍스트에서 4-6자리 숫자 찾기
+            nums = re.findall(r'\b(\d{4,6})\b', context)
+            for num_str in nums:
+                try:
+                    val = int(num_str)
+                    if 1000 <= val <= 200000:
+                        scores.append(float(val))
+                except:
+                    pass
+    
+    # 중복 제거 및 정렬
+    scores = sorted(list(set(scores)))
+    
+    # 너무 많은 값이면 상위 100개만 사용
+    if len(scores) > 100:
+        scores = scores[:100]
+    
+    return scores
+
+def _insert_bench(conn, part_id, part_type, model_name, source, test_name, scenario, value, unit, url, metric_name="Score"):
+    sql_bench = text("""
+        INSERT INTO benchmark_results (
+            part_id, part_type, cpu_model, source, test_name, test_version, scenario,
+            metric_name, value, unit, review_url
+        ) VALUES (
+            :part_id, :part_type, :cpu_model, :source, :test_name, :test_version, :scenario,
+            :metric_name, :value, :unit, :review_url
+        )
+        ON DUPLICATE KEY UPDATE
+            value = VALUES(value),
+            created_at = CURRENT_TIMESTAMP
+    """)
+    conn.execute(sql_bench, {
+        "part_id": part_id,
+        "part_type": part_type,
+        "cpu_model": model_name,
+        "source": source,
+        "test_name": test_name,
+        "test_version": "",
+        "scenario": scenario,
+        "metric_name": metric_name,
+        "value": value,
+        "unit": unit,
+        "review_url": url
+    })
+
+def _normalize_gpu_model(raw_name: str) -> tuple[str, str]:
+    """브랜드/유통사 제거하고 공통 GPU 모델로 정규화. 반환: (common_label, numeric_token)
+    예) "GALAX GeForce RTX 5060 DUAL" -> ("RTX 5060", "5060")
+    예) "AMD Radeon RX 7800 XT" -> ("RX 7800 XT", "7800")
+    """
+    name = (raw_name or '').upper()
+    # NVIDIA
+    m = re.search(r"(RTX|GTX)\s*(\d{3,4,5})\s*(TI|SUPER|XT)?", name)
+    if m:
+        series, num, suffix = m.group(1), m.group(2), m.group(3) or ''
+        series_label = f"{series} {num}{(' ' + suffix) if suffix else ''}".strip()
+        return series_label.title(), num
+    # AMD
+    m = re.search(r"(RX)\s*(\d{3,4,5})\s*(XT|XTX)?", name)
+    if m:
+        series, num, suffix = m.group(1), m.group(2), m.group(3) or ''
+        series_label = f"{series} {num}{(' ' + suffix) if suffix else ''}".strip()
+        return series_label, num
+    # Fallback: 숫자 토큰만
+    token = re.search(r"(\d{3,5})", name)
+    t = token.group(1) if token else name.split()[0:2]
+    common = f"GPU {t}" if isinstance(t, str) else ' '.join(t)
+    return common, (t if isinstance(t, str) else '')
+
+def scrape_3dmark_generic(page, gpu_name, conn, part_id, test_name: str, url: str):
+    """3DMark 필터를 사용하여 GPU Graphics Score의 Average Score를 수집."""
+    try:
+        common_label, token = _normalize_gpu_model(gpu_name)
+        if not token:
+            print(f"        -> (정보) 3DMark {test_name} GPU 모델명을 추출할 수 없습니다.")
+            return
+        
+        print(f"      -> 3DMark {test_name} 검색: {url}")
+        
+        # 테스트 이름을 3DMark 테스트 코드로 변환
+        test_code_mapping = {
+            'Fire Strike': 'fs P',
+            'Time Spy': 'spy P',
+            'Port Royal': 'pr P'
+        }
+        test_code = test_code_mapping.get(test_name)
+        if not test_code:
+            print(f"        -> (정보) 3DMark {test_name} 테스트 코드를 찾을 수 없습니다.")
+            return
+        
+        # 먼저 GPU ID를 찾기 위해 API 호출
+        gpu_id = None
+        try:
+            # GPU 이름으로 검색하여 GPU ID 찾기
+            search_url = f"https://www.3dmark.com/proxycon/ajax/search/gpuname?term={token}"
+            response = requests.get(search_url, timeout=10)
+            if response.status_code == 200:
+                gpu_data = response.json()
+                if isinstance(gpu_data, list) and len(gpu_data) > 0:
+                    # common_label이 포함된 GPU 찾기
+                    for gpu in gpu_data[:10]:  # 최대 10개 확인
+                        gpu_label = gpu.get('label', '')
+                        if token.upper() in gpu_label.upper():
+                            gpu_id = gpu.get('id')
+                            if gpu_id:
+                                print(f"        -> (디버그) GPU ID 발견: {gpu_id} ({gpu_label[:50]})")
+                                break
+        except Exception as e:
+            print(f"        -> (정보) GPU ID 검색 실패: {type(e).__name__}")
+        
+        # URL 파라미터 직접 구성
+        if gpu_id:
+            # URL 해시 파라미터 구성
+            test_param = quote(test_code)
+            search_url_with_params = (
+                f"https://www.3dmark.com/search#advanced?"
+                f"test={test_param}&"
+                f"cpuId=undefined&"
+                f"gpuId={gpu_id}&"
+                f"gpuCount=&"
+                f"gpuType=ALL&"
+                f"deviceType=&"
+                f"storageModel=ALL&"
+                f"modelId=&"
+                f"showRamDisks=false&"
+                f"memoryChannels=&"
+                f"country=&"
+                f"scoreType=graphicsScore&"
+                f"hofMode=false&"
+                f"showInvalidResults=false&"
+                f"freeParams=&"
+                f"minGpuCoreClock=&"
+                f"maxGpuCoreClock=&"
+                f"minGpuMemClock=&"
+                f"maxGpuMemClock=&"
+                f"minCpuClock=&"
+                f"maxCpuClock="
+            )
+            
+            # URL로 직접 이동
+            page.goto(search_url_with_params, wait_until='load', timeout=90000)
+            page.wait_for_timeout(10000)  # AJAX 로딩 대기
+        else:
+            # GPU ID를 찾지 못한 경우 기존 방식 사용
+            main_url = "https://www.3dmark.com/search"
+            page.goto(main_url, wait_until='load', timeout=45000)
+            page.wait_for_timeout(8000)
+            
+            # 고급 검색 모드로 전환
+            try:
+                # URL 해시로 고급 검색 모드 활성화
+                page.evaluate(f"window.location.hash = '#advanced?test={quote(test_code)}&scoreType=graphicsScore'")
+                page.wait_for_timeout(3000)
+            except:
+                pass
+            
+            # Benchmark 필터 선택 (#resultTypeId)
+            try:
+                result_type_select = page.locator('#resultTypeId')
+                result_type_select.wait_for(state='visible', timeout=10000)
+                result_type_select.select_option(value=test_code)
+                page.wait_for_timeout(2000)
+                print(f"        -> (디버그) Benchmark 필터 설정: {test_code}")
+            except Exception as e:
+                print(f"        -> (정보) Benchmark 필터 설정 실패: {type(e).__name__}")
+            
+            # Score 필터에서 Graphics Score 선택 (#scoreType)
+            try:
+                page.wait_for_timeout(2000)  # scoreType이 동적으로 채워지므로 대기
+                score_type_select = page.locator('#scoreType')
+                score_type_select.wait_for(state='visible', timeout=10000)
+                score_type_select.select_option(value='graphicsScore')
+                page.wait_for_timeout(2000)
+                print(f"        -> (디버그) Score 필터 설정: graphicsScore")
+            except Exception as e:
+                print(f"        -> (정보) Score 필터 설정 실패: {type(e).__name__}")
+            
+            # GPU 필터에서 GPU 모델 검색 및 선택 (#gpuName)
+            try:
+                gpu_name_input = page.locator('#gpuName')
+                gpu_name_input.wait_for(state='visible', timeout=10000)
+                gpu_name_input.fill(token)
+                page.wait_for_timeout(3000)  # 자동완성 대기
+                
+                # 자동완성 리스트에서 GPU 선택 (.gpuid-list li.list-item)
+                gpu_list_items = page.locator('.gpuid-list li.list-item')
+                if gpu_list_items.count() > 0:
+                    for i in range(min(gpu_list_items.count(), 10)):
+                        item = gpu_list_items.nth(i)
+                        item_text = item.text_content()
+                        if token.upper() in item_text.upper():
+                            item.click()
+                            page.wait_for_timeout(3000)
+                            print(f"        -> (디버그) GPU 선택: {item_text[:50]}")
+                            break
+            except Exception as e:
+                print(f"        -> (정보) GPU 필터 설정 실패: {type(e).__name__}")
+            
+            # 필터 변경 시 자동으로 검색이 실행되므로 결과 대기
+            page.wait_for_timeout(5000)
+        
+        # Average Score 추출 (#medianScore) - 여러 번 시도
+        avg_score = None
+        for attempt in range(3):  # 최대 3번 시도
+            try:
+                # medianScore 요소가 나타날 때까지 대기
+                median_score_element = page.locator('#medianScore')
+                median_score_element.wait_for(state='visible', timeout=10000)
+                
+                median_text = median_score_element.text_content().strip()
+                if median_text and median_text != 'N/A' and median_text != '':
+                    try:
+                        avg_score = float(median_text.replace(',', ''))
+                        # GPU 모델명(토큰)과 같은 값이면 제외
+                        if avg_score != float(token) and 1000 <= avg_score <= 200000:
+                            print(f"        -> (디버그) Average Score 발견: {int(avg_score)}")
+                            break
+                    except ValueError:
+                        pass
+            except:
+                page.wait_for_timeout(3000)  # 재시도 전 대기
+        
+        if avg_score:
+            # Average Score 저장
+            _insert_bench(conn, part_id, "GPU", common_label, "3dmark", test_name, "GPU", avg_score, "pts", url, metric_name="Graphics Score")
+            print(f"        -> 3DMark {test_name} Graphics Score Average: {int(avg_score)} [{common_label}]")
+            return
+        
+        # 대체 방법: HTML에서 직접 추출
+        html = page.content()
+        soup = BeautifulSoup(html, 'lxml')
+        
+        # #medianScore 요소 찾기
+        median_score_elem = soup.select_one('#medianScore')
+        if median_score_elem:
+            median_text = median_score_elem.get_text(strip=True)
+            if median_text and median_text != 'N/A' and median_text != '':
+                try:
+                    avg_score = float(median_text.replace(',', ''))
+                    if avg_score != float(token) and 1000 <= avg_score <= 200000:
+                        _insert_bench(conn, part_id, "GPU", common_label, "3dmark", test_name, "GPU", avg_score, "pts", url, metric_name="Graphics Score")
+                        print(f"        -> 3DMark {test_name} Graphics Score Average: {int(avg_score)} [{common_label}]")
+                        return
+                except ValueError:
+                    pass
+        
+        # 텍스트 패턴으로 찾기
+        text = soup.get_text(" ")
+        avg_score_patterns = [
+            r"Average\s+score[:\s]+(\d{4,6})",
+            r"Average\s+Score[:\s]+(\d{4,6})",
+        ]
+        
+        for pattern in avg_score_patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                try:
+                    val = int(match.group(1))
+                    if val != int(token) and 1000 <= val <= 200000:
+                        avg_score = float(val)
+                        _insert_bench(conn, part_id, "GPU", common_label, "3dmark", test_name, "GPU", avg_score, "pts", url, metric_name="Graphics Score")
+                        print(f"        -> 3DMark {test_name} Graphics Score Average: {int(avg_score)} [{common_label}]")
+                        return
+                except:
+                    pass
+        
+        print(f"        -> (정보) 3DMark {test_name} Average Score를 찾지 못했습니다.")
+    except Exception as e:
+        print(f"        -> (경고) 3DMark {test_name} 수집 중 오류: {type(e).__name__} - {str(e)[:100]}")
+
 def scrape_3dmark_timespy(page, cpu_name, conn, part_id):
     """
     topcpu.net에서 3DMark Time Spy CPU 점수 수집
@@ -1147,6 +2209,8 @@ def scrape_3dmark_timespy(page, cpu_name, conn, part_id):
     except Exception as e:
         print(f"        -> (경고) 3DMark Time Spy 수집 중 오류: {type(e).__name__} - {str(e)[:100]}")
 
+# (crawler.py 파일의 1238행부터 시작)
+
 def scrape_category(page, category_name, query, collect_reviews=False, collect_benchmarks=False):
     """
     카테고리별 크롤링 함수
@@ -1171,7 +2235,8 @@ def scrape_category(page, category_name, query, collect_reviews=False, collect_b
         ON DUPLICATE KEY UPDATE
             price=VALUES(price), review_count=VALUES(review_count), 
             star_rating=VALUES(star_rating), manufacturer=VALUES(manufacturer), 
-            warranty_info=VALUES(warranty_info)
+            warranty_info=VALUES(warranty_info),
+            img_src=VALUES(img_src)
     """)
     
     # --- 2. (신규) part_specs 테이블 INSERT SQL ---
@@ -1199,68 +2264,132 @@ def scrape_category(page, category_name, query, collect_reviews=False, collect_b
 
     with engine.connect() as conn:
         for page_num in range(1, CRAWL_PAGES + 1): # CRAWL_PAGES 변수 사용하도록 수정
-            url = f'https://search.danawa.com/dsearch.php?query={query}&page={page_num}'
+            if 'query=' in query: # 쿨러처럼 복잡한 쿼리 문자열인 경우
+                url = f'https://search.danawa.com/dsearch.php?{query}&page={page_num}'
+            else: # CPU처럼 단순 키워드인 경우
+                url = f'https://search.danawa.com/dsearch.php?query={query}&page={page_num}'
+
             print(f"--- '{category_name}' 카테고리, {page_num}페이지 목록 수집 ---")
             
             try:
                 page.goto(url, wait_until='load', timeout=20000)
                 page.wait_for_selector('ul.product_list', timeout=10000)
 
-                # 페이지 스크롤 다운 (기존 로직 유지)
-                for _ in range(3):
+                # [수정] 스크롤 로직 강화 (횟수 5, 대기 1초)
+                print("     -> 스크롤 다운 (5회)...")
+                for _ in range(5):
                     page.mouse.wheel(0, 1500)
-                    page.wait_for_timeout(500)
-                page.wait_for_load_state('networkidle', timeout=5000)
+                    page.wait_for_timeout(1000) # 👈 스크롤 후 대기 시간 증가
                 
-                list_html = page.content()
-                list_soup = BeautifulSoup(list_html, 'lxml')
-                product_items = list_soup.select('li.prod_item[id^="productItem"]')
+                # [수정] networkidle 대기 시간 증가
+                try:
+                    page.wait_for_load_state('networkidle', timeout=10000)
+                except Exception as e:
+                    print(f"     -> (경고) networkidle 대기 시간 초과 (무시하고 진행): {type(e).__name__}")
 
-                if not product_items:
+                # --- [핵심 수정] ---
+                # BeautifulSoup(page.content()) 대신 Playwright Locator 사용
+                
+                # 1. 모든 상품 아이템의 'locator'를 가져옵니다.
+                product_items_loc = page.locator('li.prod_item[id^="productItem"]')
+                
+                # 2. 최소 1개의 아이템이 로드될 때까지 기다립니다.
+                try:
+                    product_items_loc.first.wait_for(timeout=10000)
+                except Exception:
+                    print("     -> (경고) 상품 아이템(li.prod_item)을 기다렸지만 로드되지 않았습니다.")
+                    
+                item_count = product_items_loc.count()
+                if item_count == 0:
                     print("--- 현재 페이지에 상품이 없어 다음 카테고리로 넘어갑니다. ---")
                     break
                 
-                for item in product_items:
-                    name_tag = item.select_one('p.prod_name > a')
-                    price_tag = item.select_one('p.price_sect > a > strong')
-                    img_tag = item.select_one('div.thumb_image img')
+                print(f"     -> {item_count}개 상품 아이템(locator) 감지. 파싱 시작...")
 
-                    if not all([name_tag, price_tag, img_tag]):
-                        continue
-
-                    name = name_tag.text.strip()
-                    link = name_tag['href']
+                # 3. BeautifulSoup 루프 대신 locator 루프 사용
+                for i in range(item_count):
+                    item_loc = product_items_loc.nth(i)
                     
-                    img_src = img_tag.get('data-original-src') or img_tag.get('src', '')
-                    if img_src and not img_src.startswith('https:'):
-                        img_src = 'https:' + img_src
-
+                    # 4. Locator를 사용하여 각 요소를 추출 (이 과정에서 Playwright가 자동으로 대기함)
                     try:
-                        price = int(price_tag.text.strip().replace(',', ''))
-                    except ValueError:
-                        print(f"  - 가격 정보가 유효하지 않아 건너뜁니다: {name} (값: {price_tag.text.strip()})")
+                        name_tag_loc = item_loc.locator('p.prod_name > a')
+                        
+                        # [수정] 🔽 'a > strong' 대신 'a' 자체를 찾고, 그 안의 첫 번째 strong을 찾도록 변경
+                        price_tag_loc = item_loc.locator('p.price_sect > a').first.locator('strong').first
+                        
+                        # [수정] 🔽 'img' 대신 '옵션마크' 이미지를 제외하는 클래스 선택자 사용
+                        # 'img.lazyload' (지연 로딩 이미지) 또는 '옵션마크'가 아닌 첫번째 img
+                        img_tag_loc = item_loc.locator('div.thumb_image img.lazyload, div.thumb_image img:not([alt*="옵션마크"])').first
+                        
+                        name = name_tag_loc.inner_text(timeout=5000)
+                        link = name_tag_loc.get_attribute('href', timeout=5000)
+                        
+                        # [수정] 🔽 .first를 이미 위에서 사용했으므로 여기서는 제거
+                        price_text = price_tag_loc.inner_text(timeout=5000)
+                        if '가격비교예정' in price_text or not price_text:
+                            print(f"  - (정보) {name} (가격 정보 없음, 건너뜀)")
+                            continue
+                            
+                        price = int(price_text.strip().replace(',', ''))
+                        
+                        # [수정] 🔽 .first를 이미 위에서 사용했으므로 여기서는 제거
+                        img_src = img_tag_loc.get_attribute('data-src', timeout=2000) or \
+                                    img_tag_loc.get_attribute('data-original-src', timeout=2000) or \
+                                    img_tag_loc.get_attribute('src', timeout=2000)
+
+                        if img_src and not img_src.startswith('https:'):
+                            img_src = 'https:' + img_src
+                        
+                        # noimg가 저장되는 것을 방지
+                        if 'noImg' in (img_src or ''):
+                            print(f"  - (경고) {name} (이미지 로드 실패, noImg 건너뜀)")
+                            continue
+
+                    except Exception as e:
+                        print(f"  - (오류) 상품 기본 정보(이름/가격/이미지) 추출 실패: {e}")
                         continue
-                    
-                    # 리뷰, 별점 수집 (기존 로직 유지)
+
+                    # --- [수정] Locator를 사용하여 리뷰/별점 추출 ---
                     review_count = 0
                     star_rating = 0.0
-                    rating_review_count = 0 # (참고: 이 값은 현재 DB에 저장되지 않음)
-
-                    meta_items = item.select('.prod_sub_meta .meta_item')
-                    for meta in meta_items:
-                        if '상품의견' in meta.text:
-                            count_tag = meta.select_one('.dd strong')
-                            if count_tag and (match := re.search(r'[\d,]+', count_tag.text)):
-                                review_count = int(match.group().replace(',', ''))
+                    meta_items_loc = item_loc.locator('.prod_sub_meta .meta_item')
+                    meta_count = meta_items_loc.count()
+                    for j in range(meta_count):
+                        meta_text = ""
+                        try:
+                            meta_text = meta_items_loc.nth(j).inner_text(timeout=1000)
+                        except Exception:
+                            continue
+                            
+                        if '상품의견' in meta_text:
+                            count_tag_loc = meta_items_loc.nth(j).locator('.dd strong')
+                            if count_tag_loc.count() > 0:
+                                count_text = count_tag_loc.inner_text(timeout=1000)
+                                if (match := re.search(r'[\d,]+', count_text)):
+                                    review_count = int(match.group().replace(',', ''))
                         
-                        elif '상품리뷰' in meta.text:
-                            score_tag = meta.select_one('.text__score')
-                            if score_tag:
-                                try: star_rating = float(score_tag.text.strip())
+                        elif '상품리뷰' in meta_text:
+                            score_tag_loc = meta_items_loc.nth(j).locator('.text__score')
+                            if score_tag_loc.count() > 0:
+                                try: star_rating = float(score_tag_loc.inner_text(timeout=1000).strip())
                                 except (ValueError, TypeError): star_rating = 0.0
+
+                    # --- [수정] Locator를 사용하여 스펙 문자열 추출 ---
+                    spec_string = ""
+                    try:
+                        # '전체 스펙'을 우선 시도
+                        spec_tag_loc = item_loc.locator('div.spec-box--full .spec_list')
+                        spec_string = spec_tag_loc.inner_text(timeout=2000)
+                    except Exception:
+                        try:
+                            # '전체 스펙'이 없으면 '요약 스펙'이라도 가져옴
+                            spec_tag_loc_fallback = item_loc.locator('div.spec_list').first
+                            spec_string = spec_tag_loc_fallback.inner_text(timeout=1000)
+                        except Exception:
+                            print(f"  - (경고) {name} (스펙 정보 없음)")
                     
-                    spec_tag = item.select_one('div.spec_list')
-                    spec_string = spec_tag.text.strip() if spec_tag else ""
+                    spec_string = spec_string.strip()
+                    # --- [수정] 완료 ---
                     
                     # --- 3. (수정) 파서 호출 및 보증 기간(warrantyInfo) 추출 ---
                     parser_func = PARSER_MAP.get(category_name)
@@ -1278,7 +2407,7 @@ def scrape_category(page, category_name, query, collect_reviews=False, collect_b
                         manufacturer = name.split()[0]
 
                     # --- 👇 [수정 1] "시작" 로그 추가 ---
-                    print(f"\n  [처리 시작] {name}") # 한 줄 띄우고 시작
+                    print(f"\n   [처리 시작] {name}") # 한 줄 띄우고 시작
                     
                     # --- 4. (신규) 1단계: `parts` 테이블에 공통 정보 저장 ---
                     parts_params = {
@@ -1313,7 +2442,7 @@ def scrape_category(page, category_name, query, collect_reviews=False, collect_b
 
                             # --- 👇 [신규] 3대 벤치마크 수집 (Cinebench, Geekbench, Blender) ---
                             if collect_benchmarks and category_name == 'CPU':
-                                print(f"      -> 벤치마크 수집 시도...")
+                                print(f"         -> 벤치마크 수집 시도...")
                                 # (1) Cinebench R23 (render4you.com)
                                 scrape_cinebench_r23(page, name, conn, part_id, category_name)
                                 time.sleep(2)
@@ -1324,7 +2453,40 @@ def scrape_category(page, category_name, query, collect_reviews=False, collect_b
                                 scrape_blender_median(page, name, conn, part_id)
                                 time.sleep(2)
                                 
-                                print(f"      -> 벤치마크 수집 완료.")
+                                print(f"         -> 벤치마크 수집 완료.")
+
+                            # --- 👇 [신규] GPU 벤치마크 수집 (Blender GPU) ---
+                            if collect_benchmarks and category_name == '그래픽카드':
+                                print(f"         -> GPU 벤치마크 수집 시도...")
+                                # 동일 모델(GPU 공통 라벨)에 대한 벤치가 이미 존재하면 스킵
+                                common_label, token = _normalize_gpu_model(name)
+                                skip_gpu = False
+                                try:
+                                    exists_any = conn.execute(text(
+                                        "SELECT EXISTS(SELECT 1 FROM benchmark_results WHERE part_type='GPU' AND cpu_model=:m)"
+                                    ), {"m": common_label}).scalar()
+                                    if exists_any == 1:
+                                        print(f"         -> (건너뜀) {common_label} 벤치마크가 이미 존재합니다.")
+                                        skip_gpu = True
+                                except:
+                                    pass
+                                if skip_gpu:
+                                    # 벤치마크만 건너뛰고, 나머지 저장/커밋은 계속 진행
+                                    pass
+                                else: # 👈 [수정] skip_gpu가 False일 때만 벤치마크 수집
+                                    # (1) Blender GPU Median (opendata.blender.org)
+                                    scrape_blender_gpu(page, common_label, conn, part_id)
+                                    time.sleep(2)
+                                    # (2) 3DMark Fire Strike / Time Spy / Port Royal (랭킹/리더보드 페이지)
+                                    # 주의: 실제 랭킹 URL은 제품/테스트별로 다를 수 있어, 기본 엔트리 포인트로 접근 후 텍스트 기반 파싱을 수행
+                                    scrape_3dmark_generic(page, common_label, conn, part_id, 'Fire Strike', 'https://www.3dmark.com/search#advanced/fs')
+                                    page.goto("about:blank")
+                                    time.sleep(2)
+                                    scrape_3dmark_generic(page, common_label, conn, part_id, 'Time Spy', 'https://www.3dmark.com/search#advanced/spy')
+                                    page.goto("about:blank")
+                                    time.sleep(2)
+                                    scrape_3dmark_generic(page, common_label, conn, part_id, 'Port Royal', 'https://www.3dmark.com/search#advanced/pr')
+                                    time.sleep(2)
 
                             # 2. DB에 저장 (기존)
                             specs_json = json.dumps(detailed_specs, ensure_ascii=False)
@@ -1334,6 +2496,26 @@ def scrape_category(page, category_name, query, collect_reviews=False, collect_b
                                 "specs": specs_json
                             }
                             conn.execute(sql_specs, specs_params) # part_spec 테이블에 저장
+                            
+                            # --- 👇 [핵심 수정] part_spec.id를 parts.part_spec_id에 연결 ---
+                            # 1. 방금 저장/수정된 part_spec의 id를 part_id를 이용해 다시 조회
+                            #    (MySQL은 ON DUPLICATE KEY UPDATE에서 ID를 반환하지 않으므로, 별도 조회가 필요)
+                            get_spec_id_sql = text("SELECT id FROM part_spec WHERE part_id = :part_id")
+                            spec_id_result = conn.execute(get_spec_id_sql, {"part_id": part_id})
+                            spec_id = spec_id_result.scalar_one_or_none()
+                            
+                            # 2. 조회된 spec_id를 parts 테이블에 업데이트
+                            if spec_id:
+                                update_parts_sql = text("""
+                                    UPDATE parts
+                                    SET part_spec_id = :spec_id
+                                    WHERE id = :part_id
+                                """)
+                                conn.execute(update_parts_sql, {"spec_id": spec_id, "part_id": part_id})
+                                print(f"         -> parts 테이블 연결 완료 (part_id: {part_id} -> spec_id: {spec_id})") # 로그 추가
+                            else:
+                                print(f"      [경고] part_id {part_id}에 해당하는 spec_id를 찾지 못해 parts.part_spec_id를 업데이트할 수 없습니다.")
+                            # --- [수정 완료] ---
 
 
                         # --- (수정) 3단계: 퀘이사존 리뷰 수집 (선택적) ---
@@ -1343,27 +2525,27 @@ def scrape_category(page, category_name, query, collect_reviews=False, collect_b
                             review_exists = review_exists_result.scalar() == 1 # (True 또는 False)
 
                             if not review_exists:
-                                print(f"      -> 퀘이사존 리뷰 없음, 수집 시도...") # 4칸 -> 6칸
+                                print(f"         -> 퀘이사존 리뷰 없음, 수집 시도...") # 4칸 -> 6칸
                                 # (신규) category_name과 detailed_specs를 인자로 추가 전달
                                 scrape_quasarzone_reviews(page, conn, sql_review, part_id, name, category_name, detailed_specs)
                             # else:
                                 # (선택적) 이미 리뷰가 있다면 건너뛰었다고 로그 표시
-                                # print(f"    -> (건너뜀) 이미 퀘이사존 리뷰가 수집된 상품입니다.")
+                                # print(f"     -> (건너뜀) 이미 퀘이사존 리뷰가 수집된 상품입니다.")
 
                         trans.commit() # 트랜잭션 완료
                         # --- 👇 [수정 3] "완료" 로그 수정 및 들여쓰기 추가 ---
-                        print(f"    [처리 완료] {name} (댓글: {review_count}) 저장 성공.")
+                        print(f"     [처리 완료] {name} (댓글: {review_count}) 저장 성공.")
                         
                     except Exception as e:
                         trans.rollback() # 오류 발생 시 롤백
 
                         # --- 👇 [수정 4] "오류" 로그 수정 및 들여쓰기 추가 ---
-                        print(f"    [처리 오류] {name} 저장 중 오류 발생: {e}") 
+                        print(f"     [처리 오류] {name} 저장 중 오류 발생: {e}") 
 
-                    # --- 👇 [필수] 상품 1개만 테스트하기 위해 break 추가 ---
-                        print("\n--- [테스트] 상품 1개 처리 완료, 크롤러를 중단합니다. ---")
-                        break
-                        # --- 👆 [필수] ---
+                    # # --- 👇 [필수] 상품 1개만 테스트하기 위해 break 추가 ---
+                    #     print("\n--- [테스트] 상품 1개 처리 완료, 크롤러를 중단합니다. ---")
+                    #     break
+                    #     # --- 👆 [필수] ---
 
             except Exception as e:
                 print(f"--- {page_num}페이지 처리 중 오류 발생: {e}. 다음 페이지로 넘어갑니다. ---")
@@ -1485,15 +2667,6 @@ def scrape_quasarzone_reviews(page, conn, sql_review, part_id, part_name, catego
         if not search_keyword:
             print(f"        -> (정보) '{part_name}'에 대한 핵심 키워드 추출 불가, 건너뜀.") # 6칸 -> 8칸
             return
-
-        # --- 👇 [수정] 이 'try...except' 블록 전체를 삭제하거나 주석 처리합니다. ---
-        # try:
-        #     print(f"      -> (봇 우회) 퀘이사존 메인 리뷰 페이지 방문 시도...")
-        #     page.goto("https://quasarzone.com/bbs/qc_qsz", wait_until='networkidle', timeout=10000)
-        #     page.wait_for_timeout(1000) # 1초 대기
-        # except Exception as e:
-        #     print(f"      -> (경고) 메인 페이지 방문 실패 (무시하고 계속): {e}")
-        # --- [수정] 여기까지 ---
 
         # 단일 검색 실행: 공식기사(칼럼/리뷰) 그룹 제목검색 1회만 수행
         q_url = (
