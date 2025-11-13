@@ -2804,11 +2804,10 @@ def scrape_quasarzone_reviews(browser, conn, sql_review, part_id, part_name, cat
                 review_url = f"https://quasarzone.com{review_url}"
 
         print(f"         -> [1/1] 리뷰 페이지 이동: {review_url}")
-        new_page.goto(review_url, wait_until='domcontentloaded', timeout=15000) # page. -> new_page.
-        new_page.wait_for_timeout(800) # page. -> new_page.
+        new_page.goto(review_url, wait_until='networkidle', timeout=30000)
 
         content_element = new_page.locator('.view-content') # page. -> new_page.
-        if not content_element.is_visible(timeout=5000):
+        if not content_element.is_visible(timeout=10000):
                 print("         -> (오류) 리뷰 본문을 찾을 수 없습니다. (timeout)")
                 return # [수정] finally가 실행되도록 return
                 
