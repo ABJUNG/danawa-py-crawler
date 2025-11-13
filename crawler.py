@@ -10,6 +10,7 @@ import requests
 import statistics
 import sys
 from google.cloud.sql.connector import Connector
+import pymysql
 
 
 # --- 1. 기본 설정 ---
@@ -55,21 +56,20 @@ try:
 
     # Cloud SQL 연결을 위한 헬퍼 함수
     def getconn():
-        # [수정] "mysql+mysqlconnector" 사용
+        # [수정] "pymysql" 드라이버 사용 (requirements.txt와 일치)
         conn = connector.connect(
             INSTANCE_CONNECTION_NAME,
-            "mysql+mysqlconnector",
+            "pymysql",
             user=DB_USER,
             password=DB_PASSWORD,
             db=DB_NAME
-            # [삭제] ip_type=IPTypes.PRIVATE 옵션 제거
         )
         return conn
 
     # SQLAlchemy 엔진 생성 (연결 풀 사용)
     engine = create_engine(
-        # [수정] "mysql+mysqlconnector://" 사용
-        "mysql+mysqlconnector://",
+        # [수정] "mysql+pymysql://" 사용
+        "mysql+pymysql://",
         creator=getconn,
     )
 
@@ -108,7 +108,8 @@ try:
         """)
         conn.execute(create_bench_sql)
         
-        # 기존 테이블에 컬럼 추가 (이미 존재하는 경우 무시)
+        # (이하 테이블 생성/수정 로직은 동일)
+        # ... (180행까지의 기존 try...except...pass 구문들) ...
         try:
             alter_sql1 = text("ALTER TABLE benchmark_results ADD COLUMN part_type VARCHAR(16) NULL COMMENT 'CPU 또는 GPU' AFTER part_id")
             conn.execute(alter_sql1)
@@ -133,7 +134,6 @@ try:
         except:
             pass
         
-        # community_reviews 테이블에 part_type, cpu_model 컬럼 추가
         try:
             alter_review1 = text("ALTER TABLE community_reviews ADD COLUMN part_type VARCHAR(16) NULL COMMENT 'CPU 또는 GPU' AFTER part_id")
             conn.execute(alter_review1)
