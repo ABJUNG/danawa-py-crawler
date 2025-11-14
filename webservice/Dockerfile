@@ -10,6 +10,11 @@ COPY ./.mvn ./.mvn
 COPY ./mvnw .
 COPY ./mvnw.cmd .
 
+# --- 👇 [핵심 수정] ---
+# Linux 빌드 환경에서 mvnw 파일에 실행 권한을 부여합니다.
+RUN chmod +x ./mvnw
+# --- [수정 완료] ---
+
 # 의존성 다운로드 (소스코드 변경과 별도로 캐싱하기 위함)
 RUN ./mvnw dependency:go-offline -B
 
