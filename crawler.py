@@ -2388,11 +2388,16 @@ async def scrape_category(browser, page, category_name, query, collect_reviews=F
             link = await name_tag_loc.get_attribute('href', timeout=5000)
             price_text = await price_tag_loc.inner_text(timeout=5000)
 
-            if '가격비교예정' in price_text or not price_text:
-                print(f"  - (정보) {name} (가격 정보 없음, 건너뜀)")
+            # ✅ 가격 정보 검증 (단종, 가격비교예정 등 건너뛰기)
+            if '가격비교예정' in price_text or '단종' in price_text or not price_text:
+                # print(f"  - (정보) {name} (가격 정보 없음, 건너뜀)")
                 return
                 
-            price = int(price_text.strip().replace(',', ''))
+            try:
+                price = int(price_text.strip().replace(',', ''))
+            except ValueError:
+                # print(f"  - (경고) {name} (가격 파싱 실패: {price_text}, 건너뜀)")
+                return
             
             img_src = await img_tag_loc.get_attribute('data-src', timeout=2000) or \
                         await img_tag_loc.get_attribute('data-original-src', timeout=2000) or \
@@ -2637,14 +2642,20 @@ async def scrape_category(browser, page, category_name, query, collect_reviews=F
                 
                 print(f"     -> {item_count}개 상품 아이템(locator) 감지. 파싱 시작...")
 
-                # 3. BeautifulSoup 루프 대신 locator 루프 사용 - 병렬 처리로 변경
+                # 3. BeautifulSoup 루프 대신 locator 루프 사용 - 제한된 병렬 처리
+                # ✅ Semaphore를 사용해 동시 실행 개수를 10개로 제한
+                semaphore = asyncio.Semaphore(10)
+                
+                async def limited_process(item_loc):
+                    async with semaphore:
+                        return await process_item_async(browser, page, engine, category_name, item_loc, collect_benchmarks, collect_reviews, sql_parts, sql_specs, sql_review, sql_check_review)
+                
                 tasks = []
                 for i in range(item_count):
                     item_loc = product_items_loc.nth(i)
-                    # engine을 전달하여 각 task가 독립적인 연결을 사용하도록 함
-                    tasks.append(process_item_async(browser, page, engine, category_name, item_loc, collect_benchmarks, collect_reviews, sql_parts, sql_specs, sql_review, sql_check_review))
+                    tasks.append(limited_process(item_loc))
                 
-                # 모든 아이템을 병렬로 처리
+                # 제한된 병렬로 모든 아이템 처리
                 await asyncio.gather(*tasks, return_exceptions=True) 
 
             except Exception as e:
@@ -2849,16 +2860,14 @@ async def run_crawler(collect_reviews=False, collect_benchmarks=False):
                 except Exception as e:
                     print(f"--- (경고) 퀘이사존 메인 페이지 방문 실패 (무시하고 계속): {e}")
 
-            # 3. 카테고리 묶음 처리 (병렬 실행)
+            # 3. 카테고리 묶음 처리 (순차 실행으로 변경)
             batch = category_list[i : i + RESTART_INTERVAL]
             
-            tasks = []
-            for category_name, query in batch:
-                # 각 카테고리 처리를 비동기 Task로 추가
-                tasks.append(scrape_category(browser, page, category_name, query, collect_reviews, collect_benchmarks))
-            
-            # 모든 카테고리 작업을 병렬로 실행
-            await asyncio.gather(*tasks) # ✅ await 및 asyncio.gather로 병렬 실행
+            for idx_in_batch, (category_name, query) in enumerate(batch, 1):
+                global_idx = i + idx_in_batch
+                print(f"\n--- [카테고리 {global_idx}/{len(category_list)}] '{category_name}' 처리 시작 ---")
+                # 순차 실행
+                await scrape_category(browser, page, engine, category_name, query, collect_reviews, collect_benchmarks, sql_parts, sql_specs, sql_review, sql_check_review)
 
             # 4. 브라우저 종료 (메모리 해제)
             await browser.close() # await 추가
