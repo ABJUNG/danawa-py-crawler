@@ -2715,7 +2715,7 @@ async def scrape_quasarzone_reviews(browser, conn, sql_review, part_id, part_nam
             new_page = await browser.new_page(
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
             )
-            await new_page.goto(q_url, wait_until='networkidle', timeout=30000) # page. -> new_page.
+            await new_page.goto(q_url, wait_until='load', timeout=30000) # page. -> new_page.
         except Exception as e:
             print(f"         -> (오류) 검색 페이지 로딩 실패: {e}") # 6칸 -> 8칸
             return
@@ -2761,7 +2761,7 @@ async def scrape_quasarzone_reviews(browser, conn, sql_review, part_id, part_nam
                 review_url = f"https://quasarzone.com{review_url}"
 
         print(f"         -> [1/1] 리뷰 페이지 이동: {review_url}")
-        await new_page.goto(review_url, wait_until='networkidle', timeout=30000)
+        await new_page.goto(review_url, wait_until='load', timeout=30000)
 
         content_element = new_page.locator('.view-content') # page. -> new_page.
         if not await content_element.is_visible(timeout=10000):

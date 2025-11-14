@@ -1,0 +1,19 @@
+FROM python:3.10-slim
+
+WORKDIR /app
+
+# [추가] Cloud SQL Proxy 설치 (crawler와 동일)
+RUN apt-get update && apt-get install -y wget && \
+    wget https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.10.1/cloud-sql-proxy.linux.amd64 -O /usr/local/bin/cloud-sql-proxy && \
+    chmod +x /usr/local/bin/cloud-sql-proxy
+
+# [수정] Cloud용 requirements 설치
+COPY requirements_summarize.txt .
+RUN pip install --no-cache-dir -r requirements_summarize.txt
+
+# 스크립트 복사
+COPY summarize_reviews.py .
+# gcp-key.json은 Cloud Run Job에서 환경변수로 주입하므로 Dockerfile에 필요 없음
+
+# 스크립트 실행
+CMD ["python", "summarize_reviews.py"]

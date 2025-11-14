@@ -70,6 +70,20 @@ services:
     entrypoint: ["python", "crawler.py"]
     # tty: true # 필요 시 컨테이너 유지
 
+  summarizer:
+      build:
+        context: .
+        dockerfile: Dockerfile.summarizer # 1. 이전 단계에서 생성한 Dockerfile.summarizer 사용
+      container_name: danawa-summarizer
+      env_file: # .env 파일에서 GOOGLE_API_KEY를 읽어옴
+        - ./.env
+      depends_on:
+        - db
+      networks: # 'db' 서비스에 접근하기 위해 동일 네트워크 사용
+        - danawa-net
+      # summarize_reviews.py에 DB_HOST='db' 등이 하드코딩되어 있으므로
+      # 별도 DB 환경 변수는 필요 없음. GOOGLE_API_KEY만 .env로 주입.
+      entrypoint: ["python", "summarize_reviews.py"] # 2. 수동 실행용 entrypoint
 volumes:
   db_data: # DB 데이터 저장 볼륨
   maven_repo: # Maven 의존성 저장 볼륨

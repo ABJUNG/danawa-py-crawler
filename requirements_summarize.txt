@@ -1,0 +1,3 @@
+google-generativeai     # Gemini API용
+sqlalchemy              # DB 작업용
+google-cloud-sql-connector[pymysql] # 👈 [수정] Cloud SQL 연결용

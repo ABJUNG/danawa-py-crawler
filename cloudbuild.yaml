@@ -7,5 +7,25 @@ steps:
           - '-f'
           - 'Dockerfile.crawler'
           - '.'
+
+    - name: 'gcr.io/cloud-builders/docker'
+      args:
+          - 'build'
+          - '-t'
+          - 'asia-northeast3-docker.pkg.dev/pcbuildproject-478007/danawa-repo/summarizer'
+          - '-f'
+          - 'Dockerfile.summarizer'
+          - '.'
+
+    - name: 'gcr.io/cloud-builders/docker'
+      args:
+          - 'build'
+          - '-t'
+          - 'asia-northeast3-docker.pkg.dev/pcbuildproject-478007/danawa-repo/webservice'
+          - '-f'
+          - 'webservice/Dockerfile'
+          - './webservice'
 images:
     - 'asia-northeast3-docker.pkg.dev/pcbuildproject-478007/danawa-repo/crawler'
+    - 'asia-northeast3-docker.pkg.dev/pcbuildproject-478007/danawa-repo/summarizer'
+    - 'asia-northeast3-docker.pkg.dev/pcbuildproject-478007/danawa-repo/webservice'
