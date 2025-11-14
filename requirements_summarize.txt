@@ -1,4 +1,3 @@
-google-generativeai
+google-cloud-aiplatform
 sqlalchemy
-google-cloud-sql-connector  # 👈 수정
-PyMySQL                     # 👈 수정 (또는 pymysql)
+cloud-sql-python-connector[pymysql]

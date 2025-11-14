@@ -130,22 +130,49 @@ public class ChatService {
         return "상세 스펙 확인 필요";
     }
 
-    // Gemini API 호출 함수 (실제 SDK 사용 예시 - 세부 내용은 SDK 문서 참조)
+    // Gemini API 호출 함수 (Vertex AI SDK 사용)
     private String callGeminiApi(String prompt) {
-        // try (VertexAI vertexAi = new VertexAI("YOUR_PROJECT_ID", "YOUR_LOCATION")) { // 프로젝트 ID, 위치 설정
-        //     GenerativeModel model = new GenerativeModel("gemini-1.5-flash-001", vertexAi); // 사용할 모델 지정
-        //     GenerateContentResponse response = model.generateContent(prompt);
-        //     return ResponseHandler.getText(response);
-        // } catch (IOException e) {
-        //     e.printStackTrace();
-        //     return "AI 응답 생성 중 오류가 발생했습니다.";
-        // }
-
-        // --- 임시 테스트용 응답 ---
-        System.out.println("--- 전달된 프롬프트 ---");
-        System.out.println(prompt);
-        System.out.println("--------------------");
-        return "컴박사입니다! 🤖 (AI 응답 테스트) 사용자 질문: " + prompt.substring(prompt.lastIndexOf("# 사용자 질문") + 10).trim();
-        // --- 임시 테스트용 응답 끝 ---
+        try {
+            // Vertex AI 클라이언트 초기화
+            // 환경 변수 GOOGLE_APPLICATION_CREDENTIALS에서 인증 정보를 자동으로 가져옵니다
+            String projectId = System.getenv("VERTEXAI_PROJECT_ID");
+            String location = System.getenv("VERTEXAI_LOCATION");
+            
+            if (projectId == null || projectId.isEmpty()) {
+                projectId = "YOUR_PROJECT_ID"; // application.properties에서 설정 가능
+            }
+            if (location == null || location.isEmpty()) {
+                location = "asia-northeast3"; // 기본값: 서울 리전
+            }
+            
+            try (com.google.cloud.vertexai.VertexAI vertexAi = 
+                    new com.google.cloud.vertexai.VertexAI(projectId, location)) {
+                
+                // Gemini 모델 설정
+                com.google.cloud.vertexai.generativeai.GenerativeModel model = 
+                    new com.google.cloud.vertexai.generativeai.GenerativeModel("gemini-1.5-flash-001", vertexAi);
+                
+                // 안전 설정 추가
+                com.google.cloud.vertexai.api.GenerateContentResponse response = 
+                    model.generateContent(prompt);
+                
+                // 응답 추출
+                return com.google.cloud.vertexai.generativeai.ResponseHandler.getText(response);
+            }
+        } catch (java.io.IOException e) {
+            System.err.println("Vertex AI 호출 실패: " + e.getMessage());
+            e.printStackTrace();
+            
+            // 폴백: 테스트용 응답
+            System.out.println("--- [폴백 모드] 전달된 프롬프트 ---");
+            System.out.println(prompt);
+            System.out.println("--------------------");
+            return "컴박사입니다! 🤖 (AI 응답 테스트 모드 - Vertex AI 연결 실패) 사용자 질문: " + 
+                   prompt.substring(Math.max(0, prompt.lastIndexOf("# 사용자 질문") + 10)).trim();
+        } catch (Exception e) {
+            System.err.println("예상치 못한 오류: " + e.getMessage());
+            e.printStackTrace();
+            return "AI 응답 생성 중 오류가 발생했습니다.";
+        }
     }
 }

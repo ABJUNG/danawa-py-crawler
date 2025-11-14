@@ -78,4 +78,11 @@ public class PartResponseDto {
             this.benchmarks = new ArrayList<>(); // 빈 리스트 보장
         }
     }
+    
+    /**
+     * 정적 팩토리 메서드: Part 엔티티를 PartResponseDto로 변환
+     */
+    public static PartResponseDto fromEntity(Part entity) {
+        return new PartResponseDto(entity);
+    }
 }

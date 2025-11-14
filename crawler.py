@@ -157,12 +157,193 @@ try:
             conn.execute(alter_review4)
         except:
             pass
+        
+        # === 호환성 규칙 테이블 생성 ===
+        print("\n=== AI 견적 추천 시스템 테이블 초기화 ===")
+        create_compatibility_rules_sql = text("""
+        CREATE TABLE IF NOT EXISTS compatibility_rules (
+            id BIGINT AUTO_INCREMENT PRIMARY KEY,
+            rule_type VARCHAR(50) NOT NULL COMMENT 'cpu_socket, ram_type, power_wattage 등',
+            source_value VARCHAR(100) COMMENT '예: AM5, DDR5',
+            target_value VARCHAR(100) COMMENT '호환되는 값',
+            is_compatible BOOLEAN DEFAULT TRUE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            KEY idx_rule_type (rule_type),
+            KEY idx_source_value (source_value)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        """)
+        conn.execute(create_compatibility_rules_sql)
+        print("  -> compatibility_rules 테이블 생성/확인 완료")
+        
+        # === 사용자 견적 구성 테이블 생성 ===
+        create_build_configurations_sql = text("""
+        CREATE TABLE IF NOT EXISTS build_configurations (
+            id BIGINT AUTO_INCREMENT PRIMARY KEY,
+            session_id VARCHAR(100) UNIQUE,
+            user_budget INT COMMENT '사용자 예산',
+            user_purpose VARCHAR(50) COMMENT '게이밍, 사무용, 영상편집 등',
+            selected_parts JSON COMMENT '선택된 부품 ID 목록',
+            ai_recommendation TEXT COMMENT 'AI 추천 내용',
+            compatibility_check JSON COMMENT '호환성 검사 결과',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            KEY idx_session_id (session_id),
+            KEY idx_user_purpose (user_purpose)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        """)
+        conn.execute(create_build_configurations_sql)
+        print("  -> build_configurations 테이블 생성/확인 완료")
+        
+        # === 용도별 부품 가중치 테이블 생성 ===
+        create_usage_weights_sql = text("""
+        CREATE TABLE IF NOT EXISTS usage_weights (
+            id BIGINT AUTO_INCREMENT PRIMARY KEY,
+            usage_type VARCHAR(50) NOT NULL COMMENT '게이밍, 영상편집, 사무용 등',
+            category VARCHAR(50) NOT NULL COMMENT 'CPU, 그래픽카드 등',
+            weight_percentage INT COMMENT '예산 배분 비율 (%)',
+            priority INT COMMENT '중요도 순위 (1=최우선)',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY uq_usage_category (usage_type, category)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        """)
+        conn.execute(create_usage_weights_sql)
+        print("  -> usage_weights 테이블 생성/확인 완료")
+        
 except Exception as e:
     print(f"DB 연결 실패: {e}")
     # (디버깅을 위해 오류 상세 출력)
     import traceback
     traceback.print_exc()
     exit()
+
+def initialize_compatibility_rules(engine):
+    """대표적인 호환성 규칙 데이터 삽입"""
+    with engine.connect() as conn:
+        with conn.begin():
+            # 기존 규칙 확인
+            check_sql = text("SELECT COUNT(*) FROM compatibility_rules")
+            count = conn.execute(check_sql).scalar()
+            
+            if count > 0:
+                print(f"  -> 호환성 규칙 {count}개 이미 존재, 건너뜀")
+                return
+            
+            print("  -> 호환성 규칙 데이터 초기화 중...")
+            
+            # CPU 소켓 호환성 규칙
+            socket_rules = [
+                # AMD 소켓
+                ('cpu_socket', 'AM5', 'AM5', True),
+                ('cpu_socket', 'AM4', 'AM4', True),
+                # Intel 소켓
+                ('cpu_socket', 'LGA1700', 'LGA1700', True),
+                ('cpu_socket', 'LGA1851', 'LGA1851', True),
+                ('cpu_socket', 'LGA1200', 'LGA1200', True),
+            ]
+            
+            # RAM 타입 호환성
+            ram_rules = [
+                ('ram_type', 'DDR5', 'DDR5', True),
+                ('ram_type', 'DDR4', 'DDR4', True),
+                ('ram_type', 'DDR5', 'DDR4', False),  # 호환 안됨
+                ('ram_type', 'DDR4', 'DDR5', False),  # 호환 안됨
+            ]
+            
+            # 메인보드 폼팩터와 케이스 호환성
+            formfactor_rules = [
+                ('board_case', 'ATX', 'Full Tower', True),
+                ('board_case', 'ATX', 'Mid Tower', True),
+                ('board_case', 'M-ATX', 'Mid Tower', True),
+                ('board_case', 'M-ATX', 'Mini Tower', True),
+                ('board_case', 'ITX', 'Mini Tower', True),
+            ]
+            
+            all_rules = socket_rules + ram_rules + formfactor_rules
+            
+            insert_sql = text("""
+                INSERT INTO compatibility_rules (rule_type, source_value, target_value, is_compatible)
+                VALUES (:rule_type, :source_value, :target_value, :is_compatible)
+            """)
+            
+            for rule in all_rules:
+                conn.execute(insert_sql, {
+                    'rule_type': rule[0],
+                    'source_value': rule[1],
+                    'target_value': rule[2],
+                    'is_compatible': rule[3]
+                })
+            
+            print(f"  -> 호환성 규칙 {len(all_rules)}개 삽입 완료")
+
+
+def initialize_usage_weights(engine):
+    """용도별 부품 가중치 초기 데이터 삽입"""
+    with engine.connect() as conn:
+        with conn.begin():
+            # 기존 가중치 확인
+            check_sql = text("SELECT COUNT(*) FROM usage_weights")
+            count = conn.execute(check_sql).scalar()
+            
+            if count > 0:
+                print(f"  -> 용도별 가중치 {count}개 이미 존재, 건너뜀")
+                return
+            
+            print("  -> 용도별 가중치 데이터 초기화 중...")
+            
+            # 가중치 데이터: (용도, 카테고리, 예산비율%, 우선순위)
+            weights = [
+                # 게이밍 PC
+                ('게이밍', 'CPU', 20, 2),
+                ('게이밍', '그래픽카드', 40, 1),  # 최우선
+                ('게이밍', 'RAM', 10, 4),
+                ('게이밍', 'SSD', 8, 5),
+                ('게이밍', '메인보드', 12, 3),
+                ('게이밍', '파워', 7, 6),
+                ('게이밍', '케이스', 3, 7),
+                
+                # 영상편집 PC
+                ('영상편집', 'CPU', 35, 1),  # 최우선
+                ('영상편집', '그래픽카드', 25, 2),
+                ('영상편집', 'RAM', 20, 3),
+                ('영상편집', 'SSD', 10, 4),
+                ('영상편집', '메인보드', 7, 5),
+                ('영상편집', '파워', 2, 6),
+                ('영상편집', '케이스', 1, 7),
+                
+                # 사무용 PC
+                ('사무용', 'CPU', 30, 1),
+                ('사무용', '그래픽카드', 10, 5),
+                ('사무용', 'RAM', 20, 2),
+                ('사무용', 'SSD', 20, 3),
+                ('사무용', '메인보드', 15, 4),
+                ('사무용', '파워', 3, 6),
+                ('사무용', '케이스', 2, 7),
+                
+                # 코딩/개발 PC
+                ('코딩', 'CPU', 30, 1),
+                ('코딩', '그래픽카드', 15, 4),
+                ('코딩', 'RAM', 25, 2),
+                ('코딩', 'SSD', 18, 3),
+                ('코딩', '메인보드', 10, 5),
+                ('코딩', '파워', 1, 6),
+                ('코딩', '케이스', 1, 7),
+            ]
+            
+            insert_sql = text("""
+                INSERT INTO usage_weights (usage_type, category, weight_percentage, priority)
+                VALUES (:usage_type, :category, :weight_percentage, :priority)
+            """)
+            
+            for weight in weights:
+                conn.execute(insert_sql, {
+                    'usage_type': weight[0],
+                    'category': weight[1],
+                    'weight_percentage': weight[2],
+                    'priority': weight[3]
+                })
+            
+            print(f"  -> 용도별 가중치 {len(weights)}개 삽입 완료")
+
 
 def parse_cpu_specs(name, spec_string):
     """[수정] P+E코어, 클럭, 캐시, 벤치마크 등 상세 스펙을 지원하는 CPU 파서"""
@@ -2681,15 +2862,36 @@ def get_search_keyword(part_name, category_name, detailed_specs):
 
     # 3. 기타 부품 (이름에서 제조사 + 괄호 내용 제외)
     # 예: "MSI MAG A750GL 80PLUS골드..." -> "MAG A750GL"
-    search_query = " ".join(part_name.split()[1:]) # 기본 (제조사 제외)
-    search_query = re.sub(r'\([^)]+\)', '', search_query).strip() # 괄호 내용 제거
-    search_query = re.sub(r'(\d{3,4}W)', '', search_query).strip() # 파워 용량(W) 제거
+    # 예: "맥스엘리트 파워 서플라이 STARS GEMINI 650W 80PLUS 브론즈" -> "STARS GEMINI"
     
-    # 너무 길면 앞 2~3 단어만 사용
-    if len(search_query.split()) > 3:
-        search_query = " ".join(search_query.split()[:3])
+    # 일반적인 불필요 단어 제거
+    noise_words = ['파워', '서플라이', '케이스', '쿨러', 'RGB', '정품', '블랙', '화이트']
+    
+    search_query = part_name
+    # 제조사 제거 (첫 단어)
+    words = search_query.split()
+    if len(words) > 1:
+        search_query = " ".join(words[1:])
+    
+    # 괄호 내용 제거
+    search_query = re.sub(r'\([^)]+\)', '', search_query).strip()
+    # 용량(W) 제거
+    search_query = re.sub(r'\d{3,4}W', '', search_query).strip()
+    # 인증 등급 단어 제거 (80PLUS골드, 80PLUS브론즈 등은 유지하되 단독으로 나오면 제거)
+    
+    # 불필요 단어 제거
+    for word in noise_words:
+        search_query = search_query.replace(word, '')
+    
+    search_query = ' '.join(search_query.split())  # 중복 공백 제거
+    
+    # 너무 길면 앞 2~3 단어만 사용 (단, 제품 시리즈명을 보존)
+    words = search_query.split()
+    if len(words) > 3:
+        # "STARS GEMINI 650W 80PLUS 브론즈" -> "STARS GEMINI" (앞 2단어만)
+        search_query = " ".join(words[:2])
         
-    return search_query
+    return search_query.strip()
 
 # --- (수정) 퀘이사존 리뷰 크롤링 함수 (봇 우회 강화) ---
 async def scrape_quasarzone_reviews(browser, conn, sql_review, part_id, part_name, category_name, detailed_specs):
@@ -2722,34 +2924,141 @@ async def scrape_quasarzone_reviews(browser, conn, sql_review, part_id, part_nam
 
         # [수정] 이하 모든 page. 로직을 new_page. 로 변경
         await new_page.mouse.wheel(0, 1200)
-        await new_page.wait_for_timeout(500)
+        await new_page.wait_for_timeout(2000)  # 동적 콘텐츠 로딩 대기
 
-        links_selector = (
-            'a[href*="/bbs/qc_qsz/views/"], '
-            'a[href*="/bbs/qc_bench/views/"]'
-        )
+        # 쿠팡 광고 섹션을 제외하고 실제 검색 결과만 찾기
+        # 퀘이사존 검색 결과는 일반적으로 특정 영역에 표시됨
+        # 쿠팡 광고는 coupang 관련 클래스나 링크로 식별 가능
+        
+        # 먼저 검색 결과 영역을 찾습니다
+        # 검색 결과 페이지의 메인 콘텐츠 영역에서만 링크를 찾습니다
+        links_selector = 'a[href*="/bbs/"]'  # 모든 게시판 링크
 
         found_link = None
         try:
-            # 1. 페이지에 있는 모든 리뷰 링크를 가져옵니다.
-            review_links_loc = new_page.locator(links_selector)
-            links_count = await review_links_loc.count()
+            # 1. 페이지에 있는 모든 게시판 링크를 가져옵니다.
+            all_links_loc = new_page.locator(links_selector)
+            links_count = await all_links_loc.count()
+            print(f"         -> 검색 결과 페이지에서 {links_count}개의 게시판 링크 발견")
             
-            # 2. 링크를 순회합니다.
+            # 키워드 정규화: 공백, 특수문자 제거하여 매칭률 높이기
+            def normalize_text(text):
+                """텍스트를 정규화 (공백, 특수문자 제거, 소문자 변환)"""
+                text = text.lower()
+                text = re.sub(r'[^\w가-힣]', '', text)  # 특수문자 및 공백 제거
+                return text
+            
+            normalized_keyword = normalize_text(search_keyword)
+            print(f"         -> 정규화된 검색 키워드: '{normalized_keyword}'")
+            
+            # 유효한 링크만 수집 (쿠팡 광고 제외)
+            valid_links = []
             for i in range(links_count):
-                link_loc = review_links_loc.nth(i)
-                title = (await link_loc.inner_text() or "").lower()
-                keyword_lower = search_keyword.lower()
+                link_loc = all_links_loc.nth(i)
+                href = await link_loc.get_attribute('href')
+                
+                # 유효한 링크인지 확인 (퀘이사존 공식기사 게시물 링크만)
+                # qc_qsz: 퀘이사존 리뷰, qc_bench: 벤치마크
+                if not href:
+                    continue
+                    
+                # 쿠팡 광고 제외
+                if 'coupang' in href.lower() or 'coupa.ng' in href.lower():
+                    continue
+                    
+                # 퀘이사존 공식 기사 게시판만 포함
+                if '/bbs/qc_qsz' in href or '/bbs/qc_bench' in href:
+                    try:
+                        title = (await link_loc.inner_text() or "").strip()
+                        if title:  # 제목이 있는 링크만
+                            valid_links.append((href, title))
+                    except:
+                        pass
+            
+            print(f"         -> 유효한 퀘이사존 게시물 링크: {len(valid_links)}개")
+            
+            # 비교 리뷰 감지 함수
+            def is_comparison_review(title):
+                """제목이 비교 리뷰인지 확인"""
+                comparison_keywords = ['vs', 'VS', 'Vs', '비교', '대결', '대결전', '대 ', ' vs. ', ' 대 ']
+                for keyword in comparison_keywords:
+                    if keyword in title:
+                        return True
+                return False
+            
+            def has_multiple_products(title, search_keyword):
+                """제목에 여러 제품명이 있는지 확인"""
+                # 숫자 모델명이 여러 개 있는지 확인 (예: RTX 4070과 RTX 4060)
+                # CPU: 7800X3D, 7700X 같은 패턴
+                cpu_models = re.findall(r'\d{4,5}[XKF](?:3D)?', title, re.I)
+                if len(cpu_models) > 1:
+                    return True
+                
+                # GPU: RTX 4070, RTX 4060 같은 패턴
+                gpu_models = re.findall(r'(?:RTX|GTX|RX)\s*\d{3,4}', title, re.I)
+                if len(gpu_models) > 1:
+                    return True
+                
+                # 파워: 여러 용량이 언급되는지 (예: 650W, 750W)
+                power_wattages = re.findall(r'\d{3,4}W', title)
+                if len(power_wattages) > 1:
+                    return True
+                
+                # 쉼표로 구분된 여러 제품명 (예: "A, B, C 리뷰")
+                if title.count(',') >= 2:
+                    return True
+                
+                return False
+            
+            # 2. 유효한 링크를 순회하며 키워드 매칭
+            matched_links = []  # 매칭된 링크를 모두 수집
+            
+            for href, title in valid_links:
+                normalized_title = normalize_text(title)
                 
                 # 3. 링크의 텍스트(제목)에 키워드가 포함되어 있는지 확인합니다.
-                if keyword_lower in title:
-                    href = await link_loc.get_attribute('href')
-                    if href:
-                        found_link = href
-                        break # 4. 일치하는 첫 번째 링크를 찾으면 중단
+                if normalized_keyword in normalized_title:
+                    # 비교 리뷰인지 확인
+                    if is_comparison_review(title):
+                        print(f"         -> [건너뜀] 비교 리뷰: '{title[:60]}'")
+                        continue
+                    
+                    # 여러 제품이 포함된 리뷰인지 확인
+                    if has_multiple_products(title, search_keyword):
+                        print(f"         -> [건너뜀] 다중 제품 리뷰: '{title[:60]}'")
+                        continue
+                    
+                    # 단독 리뷰로 판단
+                    print(f"         -> 매칭된 제목 발견: '{title[:60]}'")
+                    found_link = href
+                    break # 4. 일치하는 첫 번째 단독 리뷰 링크를 찾으면 중단
+            
+            # 디버깅: 매칭 실패 시 처음 몇 개 제목 출력
+            if not found_link and len(valid_links) > 0:
+                print(f"         -> [디버깅] 단독 리뷰를 찾지 못함. 검색 결과 샘플:")
+                for idx, (href, title) in enumerate(valid_links[:5], 1):
+                    normalized_title = normalize_text(title)
+                    is_comp = is_comparison_review(title)
+                    is_multi = has_multiple_products(title, search_keyword)
+                    has_keyword = normalized_keyword in normalized_title
+                    
+                    status = []
+                    if has_keyword:
+                        status.append("키워드포함")
+                    if is_comp:
+                        status.append("비교리뷰")
+                    if is_multi:
+                        status.append("다중제품")
+                    
+                    status_str = f"[{', '.join(status)}]" if status else "[키워드없음]"
+                    print(f"            {idx}. {status_str} '{title[:70]}'")
+                    if has_keyword:
+                        print(f"               정규화: '{normalized_title[:70]}'")
             
         except Exception as e:
             print(f"      -> (경고) 링크 목록을 파싱하는 중 오류: {e}")
+            import traceback
+            traceback.print_exc()
             pass
 
         if not found_link: # 5. 일치하는 링크를 못 찾았다면
@@ -2914,5 +3223,16 @@ if __name__ == "__main__":
     print(f" - 벤치마크 정보 수집: {'수집함' if collect_benchmarks else '건너뜀 (활성화하려면 --benchmarks 인수 추가)'}")
     print("="*60 + "\n")
 
-    # 4. 읽어온 옵션을 run_crawler 함수로 전달합니다.
+    # 4. AI 견적 추천 시스템 데이터 초기화
+    print("\n=== AI 견적 추천 시스템 데이터 초기화 ===")
+    try:
+        initialize_compatibility_rules(engine)
+        initialize_usage_weights(engine)
+        print("=== 초기화 완료 ===\n")
+    except Exception as e:
+        print(f"초기화 중 오류 발생: {e}")
+        import traceback
+        traceback.print_exc()
+
+    # 5. 읽어온 옵션을 run_crawler 함수로 전달합니다.
     asyncio.run(run_crawler(collect_reviews=collect_reviews, collect_benchmarks=collect_benchmarks)) # ✅ [수정] asyncio.run으로 비동기 시작

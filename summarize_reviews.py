@@ -1,27 +1,34 @@
 import os
-import google.generativeai as genai
-from sqlalchemy import create_engine, text, update, select
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
-from google.cloud.sql.connector import Connector # 👈 [추가] Cloud SQL 커넥터
-import pymysql # 👈 [추가] pymysql 드라이버
+from google.cloud.sql.connector import Connector
+import pymysql
+
+# [수정] Vertex AI SDK 임포트
+import vertexai
+from vertexai.generative_models import GenerativeModel, GenerationConfig
 
 # --- 1. DB 설정 (Cloud Run 환경 변수에서 가져옴) ---
 DB_USER = os.environ.get("DB_USER")
 DB_PASSWORD = os.environ.get("DB_PASS")
 DB_NAME = os.environ.get("DB_NAME")
-INSTANCE_CONNECTION_NAME = os.environ.get("INSTANCE_CONNECTION_NAME") # 👈 [추가]
+INSTANCE_CONNECTION_NAME = os.environ.get("INSTANCE_CONNECTION_NAME")
 
-# --- 2. Gemini API 키 설정 ---
-GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
-if not GOOGLE_API_KEY:
-    print("오류: GOOGLE_API_KEY 환경 변수가 설정되지 않았습니다.")
+# --- 2. Vertex AI 프로젝트 설정 (환경 변수) ---
+PROJECT_ID = os.environ.get("GCP_PROJECT_ID") # 👈 [추가] GCP 프로젝트 ID
+LOCATION = "asia-northeast3"                 # 서울 리전
+
+if not all([DB_USER, DB_PASSWORD, DB_NAME, INSTANCE_CONNECTION_NAME, PROJECT_ID]):
+    print("오류: 필요한 환경 변수(DB_*, INSTANCE_*, GCP_PROJECT_ID)가 모두 설정되지 않았습니다.")
     exit()
-genai.configure(api_key=GOOGLE_API_KEY)
+
+# [수정] Vertex AI 초기화 (API 키 필요 없음)
+vertexai.init(project=PROJECT_ID, location=LOCATION)
 
 # --- 3. AI 모델 및 프롬프트 설정 ---
-generation_config = {"temperature": 0.5}
-model = genai.GenerativeModel(
-    'gemini-1.5-flash-001', # gemini-2.5-flash는 오타일 수 있으니 1.5-flash로 수정
+generation_config = GenerationConfig(temperature=0.5) # [수정] GenerationConfig 객체 사용
+model = GenerativeModel(
+    'gemini-2.5-flash', # Vertex AI 모델명
     generation_config=generation_config
 )
 
@@ -37,11 +44,13 @@ SUMMARIZE_PROMPT_TEMPLATE = """
 """
 
 def summarize_text(text_to_summarize):
-    """Gemini API를 호출하여 텍스트를 요약합니다."""
+    """Vertex AI Gemini API를 호출하여 텍스트를 요약합니다."""
     try:
         truncated_text = text_to_summarize[:15000]
         
         prompt = SUMMARIZE_PROMPT_TEMPLATE.format(review_text=truncated_text)
+        
+        # [수정] Vertex AI SDK 호출 방식
         response = model.generate_content(prompt)
         
         return response.text.strip()
@@ -50,9 +59,9 @@ def summarize_text(text_to_summarize):
         return None
 
 def main():
-    connector = None # 👈 [추가] finally에서 닫기 위해
+    connector = None
     try:
-        # [수정] Cloud SQL Connector를 사용한 DB 엔진 생성
+        # [수정] Cloud SQL Connector 사용
         print("Cloud SQL Connector 초기화 중...")
         connector = Connector()
         
@@ -70,7 +79,6 @@ def main():
             "mysql+pymysql://",
             creator=getconn,
         )
-        # ----------------------------------------------------
         
         Session = sessionmaker(bind=engine)
         session = Session()
@@ -84,7 +92,7 @@ def main():
         if not reviews_to_summarize:
             print("새롭게 요약할 리뷰가 없습니다. 종료합니다.")
             session.close()
-            connector.close() # 👈 [추가]
+            connector.close()
             return
 
         print(f"총 {len(reviews_to_summarize)}개의 리뷰를 요약합니다.")
@@ -100,7 +108,6 @@ def main():
             ai_summary = summarize_text(raw_text)
             
             if ai_summary:
-                # 3. DB에 요약본 업데이트 (커밋은 나중에)
                 session.execute(
                     text("UPDATE community_reviews SET ai_summary = :summary WHERE id = :id"),
                     {"summary": ai_summary, "id": review_id}
@@ -110,7 +117,7 @@ def main():
             else:
                 print(f"   -> 리뷰 ID {review_id} 요약 실패, 건너뜁니다.")
         
-        # [수정] 4. 루프가 끝난 후 한 번만 커밋 (성능 향상)
+        # 3. 루프가 끝난 후 한 번만 커밋
         if update_count > 0:
             print(f"\n총 {update_count}개의 요약본을 DB에 일괄 저장(커밋)합니다...")
             session.commit()
@@ -125,7 +132,7 @@ def main():
         print(f"DB 연결 또는 작업 중 오류 발생: {e}")
     finally:
         if connector:
-            connector.close() # 👈 [추가] 커넥터 종료
+            connector.close()
             print("DB 연결 종료.")
 
 if __name__ == "__main__":
