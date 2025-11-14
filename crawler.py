@@ -2321,56 +2321,23 @@ def scrape_3dmark_timespy(page, cpu_name, conn, part_id):
 
 # (crawler.py 파일의 1238행부터 시작)
 
-async def scrape_category(browser, page, category_name, query, collect_reviews=False, collect_benchmarks=False):
+async def scrape_category(browser, page, engine, category_name, query, collect_reviews, collect_benchmarks, sql_parts, sql_specs, sql_review, sql_check_review):
     """
     카테고리별 크롤링 함수
     
     Args:
+        browser: Playwright 브라우저 객체
         page: Playwright 페이지 객체
+        engine: SQLAlchemy 엔진 객체
         category_name: 카테고리 이름 (예: 'CPU')
         query: 검색 쿼리
         collect_reviews: 퀘이사존 리뷰 수집 여부
         collect_benchmarks: 벤치마크 정보 수집 여부
+        sql_parts: parts 테이블 INSERT SQL
+        sql_specs: part_spec 테이블 INSERT SQL
+        sql_review: community_reviews 테이블 INSERT SQL
+        sql_check_review: 리뷰 존재 여부 확인 SQL
     """
-    # --- 1. (신규) parts 테이블 INSERT SQL ---
-    # ON DUPLICATE KEY UPDATE: 이미 수집된 상품(link 기준)이면 가격, 리뷰 수 등만 업데이트합니다.
-    sql_parts = text("""
-        INSERT INTO parts (
-            name, category, price, link, img_src, manufacturer, 
-            review_count, star_rating, warranty_info
-        ) VALUES (
-            :name, :category, :price, :link, :img_src, :manufacturer,
-            :review_count, :star_rating, :warranty_info
-        )
-        ON DUPLICATE KEY UPDATE
-            price=VALUES(price), review_count=VALUES(review_count), 
-            star_rating=VALUES(star_rating), manufacturer=VALUES(manufacturer), 
-            warranty_info=VALUES(warranty_info),
-            img_src=VALUES(img_src)
-    """)
-    
-    # --- 2. (신규) part_specs 테이블 INSERT SQL ---
-    # ON DUPLICATE KEY UPDATE: 이미 스펙이 있으면 새 스펙으로 덮어씁니다.
-    sql_specs = text("""
-        INSERT INTO part_spec (part_id, specs)
-        VALUES (:part_id, :specs)
-        ON DUPLICATE KEY UPDATE
-            specs=VALUES(specs)
-    """)
-
-    # --- 3. (신규) community_reviews 테이블 INSERT SQL ---
-    # ON DUPLICATE KEY UPDATE: review_url이 이미 존재하면 무시(아무것도 안 함)
-    sql_review = text("""
-        INSERT INTO community_reviews (
-            part_id, part_type, cpu_model, source, review_url, raw_text
-        ) VALUES (
-            :part_id, :part_type, :cpu_model, :source, :review_url, :raw_text
-        )
-        ON DUPLICATE KEY UPDATE
-            part_id = part_id 
-    """)
-    # --- 4. (신규) 퀘이사존 리뷰 존재 여부 확인 SQL ---
-    sql_check_review = text("SELECT EXISTS (SELECT 1 FROM community_reviews WHERE part_id = :part_id)")
 
     # --- [신규 함수: 아이템 처리 로직을 분리 및 비동기화] ---
     async def process_item_async(browser, page, engine, category_name, item_loc, collect_benchmarks, collect_reviews, sql_parts, sql_specs, sql_review, sql_check_review):
@@ -2598,69 +2565,68 @@ async def scrape_category(browser, page, category_name, query, collect_reviews=F
             # --- 👇 [수정 4] "오류" 로그 수정 및 들여쓰기 추가 ---
             print(f"     [처리 오류] {name} 저장 중 오류 발생: {e}")
 
-    with engine.connect() as conn:
-        for page_num in range(1, CRAWL_PAGES + 1): # CRAWL_PAGES 변수 사용하도록 수정
-            if 'query=' in query: # 쿨러처럼 복잡한 쿼리 문자열인 경우
-                url = f'https://search.danawa.com/dsearch.php?{query}&page={page_num}'
-            else: # CPU처럼 단순 키워드인 경우
-                url = f'https://search.danawa.com/dsearch.php?query={query}&page={page_num}'
+    for page_num in range(1, CRAWL_PAGES + 1): # CRAWL_PAGES 변수 사용하도록 수정
+        if 'query=' in query: # 쿨러처럼 복잡한 쿼리 문자열인 경우
+            url = f'https://search.danawa.com/dsearch.php?{query}&page={page_num}'
+        else: # CPU처럼 단순 키워드인 경우
+            url = f'https://search.danawa.com/dsearch.php?query={query}&page={page_num}'
 
-            print(f"--- '{category_name}' 카테고리, {page_num}페이지 목록 수집 ---")
+        print(f"--- '{category_name}' 카테고리, {page_num}페이지 목록 수집 ---")
+        
+        try:
+            await page.goto(url, wait_until='load', timeout=20000)
+            await page.wait_for_selector('ul.product_list', timeout=10000)
+
+            # [수정] 스크롤 로직 강화 (횟수 5, 대기 1초)
+            print("     -> 스크롤 다운 (5회)...")
+            for _ in range(5):
+                await page.mouse.wheel(0, 1500)
+                await page.wait_for_timeout(1000) # 👈 스크롤 후 대기 시간 증가
             
+            # [수정] networkidle 대기 시간 증가
             try:
-                await page.goto(url, wait_until='load', timeout=20000)
-                await page.wait_for_selector('ul.product_list', timeout=10000)
-
-                # [수정] 스크롤 로직 강화 (횟수 5, 대기 1초)
-                print("     -> 스크롤 다운 (5회)...")
-                for _ in range(5):
-                    await page.mouse.wheel(0, 1500)
-                    await page.wait_for_timeout(1000) # 👈 스크롤 후 대기 시간 증가
-                
-                # [수정] networkidle 대기 시간 증가
-                try:
-                    await page.wait_for_load_state('networkidle', timeout=10000)
-                except Exception as e:
-                    print(f"     -> (경고) networkidle 대기 시간 초과 (무시하고 진행): {type(e).__name__}")
-
-                # --- [핵심 수정] ---
-                # BeautifulSoup(page.content()) 대신 Playwright Locator 사용
-                
-                # 1. 모든 상품 아이템의 'locator'를 가져옵니다.
-                product_items_loc = page.locator('li.prod_item[id^="productItem"]')
-                
-                # 2. 최소 1개의 아이템이 로드될 때까지 기다립니다.
-                try:
-                    await product_items_loc.first.wait_for(timeout=10000)
-                except Exception:
-                    print("     -> (경고) 상품 아이템(li.prod_item)을 기다렸지만 로드되지 않았습니다.")
-                    
-                item_count = await product_items_loc.count()
-                if item_count == 0:
-                    print("--- 현재 페이지에 상품이 없어 다음 카테고리로 넘어갑니다. ---")
-                    break
-                
-                print(f"     -> {item_count}개 상품 아이템(locator) 감지. 파싱 시작...")
-
-                # 3. BeautifulSoup 루프 대신 locator 루프 사용 - 제한된 병렬 처리
-                # ✅ Semaphore를 사용해 동시 실행 개수를 10개로 제한
-                semaphore = asyncio.Semaphore(10)
-                
-                async def limited_process(item_loc):
-                    async with semaphore:
-                        return await process_item_async(browser, page, engine, category_name, item_loc, collect_benchmarks, collect_reviews, sql_parts, sql_specs, sql_review, sql_check_review)
-                
-                tasks = []
-                for i in range(item_count):
-                    item_loc = product_items_loc.nth(i)
-                    tasks.append(limited_process(item_loc))
-                
-                # 제한된 병렬로 모든 아이템 처리
-                await asyncio.gather(*tasks, return_exceptions=True) 
-
+                await page.wait_for_load_state('networkidle', timeout=10000)
             except Exception as e:
-                print(f"--- {page_num}페이지 처리 중 오류 발생: {e}. 다음 페이지로 넘어갑니다. ---")
-                continue
+                print(f"     -> (경고) networkidle 대기 시간 초과 (무시하고 진행): {type(e).__name__}")
+
+            # --- [핵심 수정] ---
+            # BeautifulSoup(page.content()) 대신 Playwright Locator 사용
+            
+            # 1. 모든 상품 아이템의 'locator'를 가져옵니다.
+            product_items_loc = page.locator('li.prod_item[id^="productItem"]')
+            
+            # 2. 최소 1개의 아이템이 로드될 때까지 기다립니다.
+            try:
+                await product_items_loc.first.wait_for(timeout=10000)
+            except Exception:
+                print("     -> (경고) 상품 아이템(li.prod_item)을 기다렸지만 로드되지 않았습니다.")
+                
+            item_count = await product_items_loc.count()
+            if item_count == 0:
+                print("--- 현재 페이지에 상품이 없어 다음 카테고리로 넘어갑니다. ---")
+                break
+            
+            print(f"     -> {item_count}개 상품 아이템(locator) 감지. 파싱 시작...")
+
+            # 3. BeautifulSoup 루프 대신 locator 루프 사용 - 제한된 병렬 처리
+            # ✅ Semaphore를 사용해 동시 실행 개수를 5개로 제한 (안정성 향상)
+            semaphore = asyncio.Semaphore(5)
+            
+            async def limited_process(item_loc):
+                async with semaphore:
+                    return await process_item_async(browser, page, engine, category_name, item_loc, collect_benchmarks, collect_reviews, sql_parts, sql_specs, sql_review, sql_check_review)
+            
+            tasks = []
+            for i in range(item_count):
+                item_loc = product_items_loc.nth(i)
+                tasks.append(limited_process(item_loc))
+            
+            # 제한된 병렬로 모든 아이템 처리
+            await asyncio.gather(*tasks, return_exceptions=True) 
+
+        except Exception as e:
+            print(f"--- {page_num}페이지 처리 중 오류 발생: {e}. 다음 페이지로 넘어갑니다. ---")
+            continue
 
 
 
@@ -2834,6 +2800,41 @@ async def run_crawler(collect_reviews=False, collect_benchmarks=False):
 
     # 브라우저를 몇 개 카테고리마다 재시작할지 설정합니다. (9개 카테고리 중 3개마다 재시작)
     RESTART_INTERVAL = 3
+
+    # --- SQL 쿼리 정의 ---
+    sql_parts = text("""
+        INSERT INTO parts (
+            name, category, price, link, img_src, manufacturer, 
+            review_count, star_rating, warranty_info
+        ) VALUES (
+            :name, :category, :price, :link, :img_src, :manufacturer,
+            :review_count, :star_rating, :warranty_info
+        )
+        ON DUPLICATE KEY UPDATE
+            price=VALUES(price), review_count=VALUES(review_count), 
+            star_rating=VALUES(star_rating), manufacturer=VALUES(manufacturer), 
+            warranty_info=VALUES(warranty_info),
+            img_src=VALUES(img_src)
+    """)
+    
+    sql_specs = text("""
+        INSERT INTO part_spec (part_id, specs)
+        VALUES (:part_id, :specs)
+        ON DUPLICATE KEY UPDATE
+            specs=VALUES(specs)
+    """)
+
+    sql_review = text("""
+        INSERT INTO community_reviews (
+            part_id, part_type, cpu_model, source, review_url, raw_text
+        ) VALUES (
+            :part_id, :part_type, :cpu_model, :source, :review_url, :raw_text
+        )
+        ON DUPLICATE KEY UPDATE
+            part_id = part_id 
+    """)
+    
+    sql_check_review = text("SELECT EXISTS (SELECT 1 FROM community_reviews WHERE part_id = :part_id)")
 
     async with async_playwright() as p: # ✅ [수정] async_playwright 사용
         
