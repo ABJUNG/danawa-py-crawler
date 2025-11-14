@@ -3070,12 +3070,46 @@ async def scrape_quasarzone_reviews(browser, conn, sql_review, part_id, part_nam
                 review_url = f"https://quasarzone.com{review_url}"
 
         print(f"         -> [1/1] 리뷰 페이지 이동: {review_url}")
-        await new_page.goto(review_url, wait_until='load', timeout=30000)
-
-        content_element = new_page.locator('.view-content') # page. -> new_page.
-        if not await content_element.is_visible(timeout=10000):
-                print("         -> (오류) 리뷰 본문을 찾을 수 없습니다. (timeout)")
-                return # [수정] finally가 실행되도록 return
+        
+        # [수정] Cloud Run 환경을 위한 페이지 로딩 개선
+        try:
+            await new_page.goto(review_url, wait_until='networkidle', timeout=45000)
+        except Exception as e:
+            print(f"         -> (경고) networkidle 대기 실패, load로 재시도: {type(e).__name__}")
+            await new_page.goto(review_url, wait_until='load', timeout=30000)
+        
+        # 추가 대기: JavaScript 렌더링 시간 확보
+        await new_page.wait_for_timeout(2000)
+        
+        # [수정] 여러 셀렉터 시도 (퀘이사존 페이지 구조 변경 대응)
+        content_element = None
+        selectors = [
+            '.view-content',           # 기본 셀렉터
+            '.article-content',        # 대체 셀렉터 1
+            '.content-body',           # 대체 셀렉터 2
+            'article .view-body',      # 대체 셀렉터 3
+            '.board-read .content'     # 대체 셀렉터 4
+        ]
+        
+        for selector in selectors:
+            try:
+                element = new_page.locator(selector)
+                if await element.count() > 0 and await element.first.is_visible(timeout=5000):
+                    content_element = element.first
+                    print(f"         -> (디버그) 본문 발견: {selector}")
+                    break
+            except Exception:
+                continue
+        
+        if content_element is None:
+            print("         -> (오류) 리뷰 본문을 찾을 수 없습니다. (모든 셀렉터 시도 실패)")
+            # [디버깅] 페이지 스크린샷 저장 (선택사항)
+            try:
+                await new_page.screenshot(path=f"debug_screenshot_{part_id}.png")
+                print(f"         -> (디버그) 스크린샷 저장: debug_screenshot_{part_id}.png")
+            except:
+                pass
+            return # [수정] finally가 실행되도록 return
                 
         raw_text = await content_element.inner_text()
         if len(raw_text) < 100:
@@ -3171,8 +3205,26 @@ async def run_crawler(collect_reviews=False, collect_benchmarks=False):
         # 퀘이사존 세션 획득 로직은 그대로 둡니다.
 
         for i in range(0, len(category_list), RESTART_INTERVAL):
-            # 1. 브라우저 시작
-            browser = await p.chromium.launch(headless=HEADLESS_MODE, slow_mo=SLOW_MOTION) # await 추가
+            # 1. 브라우저 시작 (Cloud Run 환경 최적화)
+            browser = await p.chromium.launch(
+                headless=HEADLESS_MODE, 
+                slow_mo=SLOW_MOTION,
+                args=[
+                    '--no-sandbox',                    # Cloud Run 필수
+                    '--disable-setuid-sandbox',        # Cloud Run 필수
+                    '--disable-dev-shm-usage',         # 메모리 부족 방지
+                    '--disable-gpu',                   # GPU 비활성화
+                    '--disable-software-rasterizer',
+                    '--disable-extensions',
+                    '--disable-background-networking',
+                    '--disable-background-timer-throttling',
+                    '--disable-backgrounding-occluded-windows',
+                    '--disable-renderer-backgrounding',
+                    '--no-first-run',
+                    '--no-default-browser-check',
+                    '--window-size=1920,1080'          # 화면 크기 명시
+                ]
+            )
             # 메인 페이지 생성 및 봇 우회 (page는 다나와 목록 유지용)
             page = await browser.new_page() # await 추가
             

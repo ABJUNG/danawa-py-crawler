@@ -20,3 +20,4 @@ public class ChatResponseDto {
     private String nextAction;           // 다음 액션 (예: "show_build", "select_cpu")
 }
 
+

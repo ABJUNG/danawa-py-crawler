@@ -16,3 +16,4 @@ public class ChatRequestDto {
     private String context;     // 대화 컨텍스트 (선택사항)
 }
 
+

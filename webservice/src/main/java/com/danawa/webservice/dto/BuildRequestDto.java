@@ -18,3 +18,4 @@ public class BuildRequestDto {
     private Map<String, String> preferences; // 추가 요구사항 (브랜드 선호, RGB 여부 등)
 }
 
+
