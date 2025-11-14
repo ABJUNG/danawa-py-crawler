@@ -2876,7 +2876,7 @@ async def run_crawler(collect_reviews=False, collect_benchmarks=False):
             if collect_reviews:
                 try:
                     print("--- (봇 우회) 퀘이사존 메인 리뷰 페이지 1회 방문 (세션 획득) ---")
-                    await page.goto("https://quasarzone.com/bbs/qc_qsz", wait_until='networkidle', timeout=20000) # await 추가
+                    await page.goto("https://quasarzone.com/bbs/qc_qsz", wait_until='load', timeout=30000) # await 추가
                     await page.wait_for_timeout(1000) # await 추가
                     print("--- 퀘이사존 세션 획득 완료 ---")
                 except Exception as e:
