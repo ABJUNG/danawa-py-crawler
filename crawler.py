@@ -2373,9 +2373,10 @@ async def scrape_category(browser, page, category_name, query, collect_reviews=F
     sql_check_review = text("SELECT EXISTS (SELECT 1 FROM community_reviews WHERE part_id = :part_id)")
 
     # --- [신규 함수: 아이템 처리 로직을 분리 및 비동기화] ---
-    async def process_item_async(browser, page, conn, category_name, item_loc, collect_benchmarks, collect_reviews):
+    async def process_item_async(browser, page, engine, category_name, item_loc, collect_benchmarks, collect_reviews, sql_parts, sql_specs, sql_review, sql_check_review):
         """개별 상품의 정보 추출, DB 저장, 벤치마크/리뷰 수집을 비동기적으로 처리합니다."""
         # DB 트랜잭션은 아이템별로 독립적으로 관리됩니다.
+        # 각 아이템은 독립적인 DB 연결을 사용합니다.
 
         # 4. Locator를 사용하여 각 요소를 추출 (이 과정에서 Playwright가 자동으로 대기함)
         try:
@@ -2472,108 +2473,122 @@ async def scrape_category(browser, page, category_name, query, collect_reviews=F
             "warranty_info": warranty_info
         }
         
-        # 트랜잭션 시작 (중요)
+        # 각 아이템은 독립적인 DB 연결 사용 (트랜잭션 충돌 방지)
         try:
-            with conn.begin(): # SQLAlchemy Connection에서 트랜잭션 시작
-                # parts 테이블에 삽입
-                result = conn.execute(sql_parts, parts_params)
-                # 방금 INSERT된 part_id 또는 이미 존재하는 part_id 가져오기
-                part_id = None
-                if result.lastrowid: # 새 데이터가 INSERT 된 경우
-                    part_id = result.lastrowid
-                else: # ON DUPLICATE KEY UPDATE가 발생한 경우 (link 기준)
-                    find_id_sql = text("SELECT id FROM parts WHERE link = :link")
-                    part_id_result = conn.execute(find_id_sql, {"link": link})
-                    part_id = part_id_result.scalar_one_or_none()
+            with engine.connect() as conn:
+                with conn.begin(): # SQLAlchemy Connection에서 트랜잭션 시작
+                    # 기존 상품 확인 (가격 변동 체크)
+                    find_existing_sql = text("SELECT id, price FROM parts WHERE link = :link")
+                    existing_result = conn.execute(find_existing_sql, {"link": link})
+                    existing = existing_result.fetchone()
+                    
+                    part_id = None
+                    needs_update = False
+                    
+                    if existing:
+                        # 기존 상품이 존재
+                        part_id = existing[0]
+                        old_price = existing[1]
+                        
+                        if old_price != price:
+                            # 가격 변동이 있는 경우만 업데이트
+                            print(f"     -> 가격 변동 감지: {old_price}원 -> {price}원 (업데이트)")
+                            needs_update = True
+                        else:
+                            # 가격 변동 없음 - 벤치마크/리뷰만 확인
+                            print(f"     -> 가격 변동 없음 (건너뜀)")
+                            # 벤치마크/리뷰 수집은 계속 진행
+                    else:
+                        # 신규 상품
+                        needs_update = True
+                        print(f"     -> 신규 상품 발견")
+                    
+                    # 신규이거나 가격 변동이 있는 경우만 DB 업데이트
+                    if needs_update:
+                        result = conn.execute(sql_parts, parts_params)
+                        if not part_id:  # 신규 상품인 경우
+                            if result.lastrowid:
+                                part_id = result.lastrowid
+                            else:
+                                find_id_sql = text("SELECT id FROM parts WHERE link = :link")
+                                part_id_result = conn.execute(find_id_sql, {"link": link})
+                                part_id = part_id_result.scalar_one_or_none()
 
-                if part_id:
-                    # 벤치마크/리뷰 수집은 DB 연결 풀 외부에서 수행합니다.
-                    if collect_benchmarks and category_name == 'CPU':
-                        await scrape_cinebench_r23(browser, name, conn, part_id, category_name) # await 추가
-                        await asyncio.sleep(0.5) # ✅ 지연 최소화
-                        await scrape_geekbench_v6(browser, name, conn, part_id) # await 추가
-                        await asyncio.sleep(0.5) # ✅ 지연 최소화
-                        scrape_blender_median(None, name, conn, part_id) # requests 기반이므로 await 불필요
-                        await asyncio.sleep(0.5) # ✅ 지연 최소화
+                    if part_id:
+                        # 벤치마크 수집 (CPU)
+                        if collect_benchmarks and category_name == 'CPU':
+                            # 이미 벤치마크가 존재하는지 확인
+                            bench_exists = conn.execute(text(
+                                "SELECT EXISTS(SELECT 1 FROM benchmark_results WHERE part_id=:pid)"
+                            ), {"pid": part_id}).scalar()
+                            
+                            if bench_exists == 1:
+                                print(f"         -> (건너뜀) CPU 벤치마크가 이미 존재합니다.")
+                            else:
+                                await scrape_cinebench_r23(browser, name, conn, part_id, category_name)
+                                await asyncio.sleep(0.5)
+                                await scrape_geekbench_v6(browser, name, conn, part_id)
+                                await asyncio.sleep(0.5)
+                                scrape_blender_median(None, name, conn, part_id)
+                                await asyncio.sleep(0.5)
 
-                    # --- 👇 [신규] GPU 벤치마크 수집 (Blender GPU) ---
-                    if collect_benchmarks and category_name == '그래픽카드':
-                        print(f"         -> GPU 벤치마크 수집 시도...")
-                        # 동일 모델(GPU 공통 라벨)에 대한 벤치가 이미 존재하면 스킵
-                        common_label, token = _normalize_gpu_model(name)
-                        skip_gpu = False
-                        try:
+                        # GPU 벤치마크 수집
+                        if collect_benchmarks and category_name == '그래픽카드':
+                            common_label, token = _normalize_gpu_model(name)
+                            # 동일 모델에 대한 벤치가 이미 존재하는지 확인
                             exists_any = conn.execute(text(
                                 "SELECT EXISTS(SELECT 1 FROM benchmark_results WHERE part_type='GPU' AND cpu_model=:m)"
                             ), {"m": common_label}).scalar()
+                            
                             if exists_any == 1:
-                                print(f"         -> (건너뜀) {common_label} 벤치마크가 이미 존재합니다.")
-                                skip_gpu = True
-                        except:
-                            pass
-                        if skip_gpu:
-                            # 벤치마크만 건너뛰고, 나머지 저장/커밋은 계속 진행
-                            pass
-                        else: # 👈 [수정] skip_gpu가 False일 때만 벤치마크 수집
-                            # (blender_gpu는 requests 사용 - 수정 불필요)
-                            scrape_blender_gpu(page, common_label, conn, part_id)
-                            await asyncio.sleep(2)
-                            # [수정] page 대신 browser 전달
-                            await scrape_3dmark_generic(browser, common_label, conn, part_id, 'Fire Strike', 'https://www.3dmark.com/search#advanced/fs')
-                            await asyncio.sleep(2)
-                            # [수정] page 대신 browser 전달
-                            await scrape_3dmark_generic(browser, common_label, conn, part_id, 'Time Spy', 'https://www.3dmark.com/search#advanced/spy')
-                            await asyncio.sleep(2)
-                            # [수정] page 대신 browser 전달
-                            await scrape_3dmark_generic(browser, common_label, conn, part_id, 'Port Royal', 'https://www.3dmark.com/search#advanced/pr')
-                            await asyncio.sleep(2)
+                                print(f"         -> (건너뜀) {common_label} GPU 벤치마크가 이미 존재합니다.")
+                            else:
+                                print(f"         -> GPU 벤치마크 수집 시도...")
+                                scrape_blender_gpu(page, common_label, conn, part_id)
+                                await asyncio.sleep(2)
+                                await scrape_3dmark_generic(browser, common_label, conn, part_id, 'Fire Strike', 'https://www.3dmark.com/search#advanced/fs')
+                                await asyncio.sleep(2)
+                                await scrape_3dmark_generic(browser, common_label, conn, part_id, 'Time Spy', 'https://www.3dmark.com/search#advanced/spy')
+                                await asyncio.sleep(2)
+                                await scrape_3dmark_generic(browser, common_label, conn, part_id, 'Port Royal', 'https://www.3dmark.com/search#advanced/pr')
+                                await asyncio.sleep(2)
 
-                    # 2. DB에 저장 (기존)
-                    specs_json = json.dumps(detailed_specs, ensure_ascii=False)
-                    
-                    specs_params = {
-                        "part_id": part_id,
-                        "specs": specs_json
-                    }
-                    conn.execute(sql_specs, specs_params) # part_spec 테이블에 저장
-                    
-                    # --- 👇 [핵심 수정] part_spec.id를 parts.part_spec_id에 연결 ---
-                    # 1. 방금 저장/수정된 part_spec의 id를 part_id를 이용해 다시 조회
-                    #    (MySQL은 ON DUPLICATE KEY UPDATE에서 ID를 반환하지 않으므로, 별도 조회가 필요)
-                    get_spec_id_sql = text("SELECT id FROM part_spec WHERE part_id = :part_id")
-                    spec_id_result = conn.execute(get_spec_id_sql, {"part_id": part_id})
-                    spec_id = spec_id_result.scalar_one_or_none()
-                    
-                    # 2. 조회된 spec_id를 parts 테이블에 업데이트
-                    if spec_id:
-                        update_parts_sql = text("""
-                            UPDATE parts
-                            SET part_spec_id = :spec_id
-                            WHERE id = :part_id
-                        """)
-                        conn.execute(update_parts_sql, {"spec_id": spec_id, "part_id": part_id})
-                        print(f"         -> parts 테이블 연결 완료 (part_id: {part_id} -> spec_id: {spec_id})") # 로그 추가
-                    else:
-                        print(f"      [경고] part_id {part_id}에 해당하는 spec_id를 찾지 못해 parts.part_spec_id를 업데이트할 수 없습니다.")
-                    # --- [수정 완료] ---
+                        # 스펙 저장 (신규이거나 가격 변동이 있는 경우만)
+                        if needs_update:
+                            specs_json = json.dumps(detailed_specs, ensure_ascii=False)
+                            specs_params = {
+                                "part_id": part_id,
+                                "specs": specs_json
+                            }
+                            conn.execute(sql_specs, specs_params)
+                            
+                            # part_spec.id를 parts.part_spec_id에 연결
+                            get_spec_id_sql = text("SELECT id FROM part_spec WHERE part_id = :part_id")
+                            spec_id_result = conn.execute(get_spec_id_sql, {"part_id": part_id})
+                            spec_id = spec_id_result.scalar_one_or_none()
+                            
+                            if spec_id:
+                                update_parts_sql = text("""
+                                    UPDATE parts
+                                    SET part_spec_id = :spec_id
+                                    WHERE id = :part_id
+                                """)
+                                conn.execute(update_parts_sql, {"spec_id": spec_id, "part_id": part_id})
+                                print(f"         -> parts 테이블 연결 완료 (part_id: {part_id} -> spec_id: {spec_id})")
 
-                    # --- (수정) 3단계: 퀘이사존 리뷰 수집 (선택적) ---
-                    if collect_reviews and part_id: # part_id를 성공적으로 가져왔다면
-                        # 퀘이사존 리뷰가 DB에 이미 저장되어 있는지 확인
-                        review_exists_result = conn.execute(sql_check_review, {"part_id": part_id})
-                        review_exists = review_exists_result.scalar() == 1 # (True 또는 False)
+                        # 퀘이사존 리뷰 수집
+                        if collect_reviews and part_id:
+                            review_exists_result = conn.execute(sql_check_review, {"part_id": part_id})
+                            review_exists = review_exists_result.scalar() == 1
 
-                        if not review_exists:
-                            print(f"             -> 퀘이사존 리뷰 없음, 수집 시도...") # 4칸 -> 6칸
-                            # [수정] page 대신 browser 전달
-                            await scrape_quasarzone_reviews(browser, conn, sql_review, part_id, name, category_name, detailed_specs)
+                            if not review_exists:
+                                print(f"             -> 퀘이사존 리뷰 없음, 수집 시도...")
+                                await scrape_quasarzone_reviews(browser, conn, sql_review, part_id, name, category_name, detailed_specs)
+                            else:
+                                print(f"             -> (건너뜀) 퀘이사존 리뷰가 이미 존재합니다.")
 
-                        # (선택적) 이미 리뷰가 있다면 건너뛰었다고 로그 표시
-                        # print(f"     -> (건너뜀) 이미 퀘이사존 리뷰가 수집된 상품입니다.")
-
-                # 트랜잭션은 with 블록 종료 시 자동 커밋됨
-                # --- 👇 [수정 3] "완료" 로그 수정 및 들여쓰기 추가 ---
-                print(f"     [처리 완료] {name} (댓글: {review_count}) 저장 성공.")
+                    # 트랜잭션은 with 블록 종료 시 자동 커밋됨
+                    print(f"     [처리 완료] {name} (댓글: {review_count}) 저장 성공.")
         except Exception as e:
             # --- 👇 [수정 4] "오류" 로그 수정 및 들여쓰기 추가 ---
             print(f"     [처리 오류] {name} 저장 중 오류 발생: {e}")
@@ -2626,7 +2641,8 @@ async def scrape_category(browser, page, category_name, query, collect_reviews=F
                 tasks = []
                 for i in range(item_count):
                     item_loc = product_items_loc.nth(i)
-                    tasks.append(process_item_async(browser, page, conn, category_name, item_loc, collect_benchmarks, collect_reviews))
+                    # engine을 전달하여 각 task가 독립적인 연결을 사용하도록 함
+                    tasks.append(process_item_async(browser, page, engine, category_name, item_loc, collect_benchmarks, collect_reviews, sql_parts, sql_specs, sql_review, sql_check_review))
                 
                 # 모든 아이템을 병렬로 처리
                 await asyncio.gather(*tasks, return_exceptions=True) 
@@ -2701,7 +2717,7 @@ async def scrape_quasarzone_reviews(browser, conn, sql_review, part_id, part_nam
             new_page = await browser.new_page(
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
             )
-            new_page.goto(q_url, wait_until='networkidle', timeout=30000) # page. -> new_page.
+            await new_page.goto(q_url, wait_until='networkidle', timeout=30000) # page. -> new_page.
         except Exception as e:
             print(f"         -> (오류) 검색 페이지 로딩 실패: {e}") # 6칸 -> 8칸
             return
@@ -2718,16 +2734,18 @@ async def scrape_quasarzone_reviews(browser, conn, sql_review, part_id, part_nam
         found_link = None
         try:
             # 1. 페이지에 있는 모든 리뷰 링크를 가져옵니다.
-            review_links = new_page.locator(links_selector).all() 
+            review_links_loc = new_page.locator(links_selector)
+            links_count = await review_links_loc.count()
             
             # 2. 링크를 순회합니다.
-            for link in review_links:
-                title = (link.inner_text() or "").lower()
+            for i in range(links_count):
+                link_loc = review_links_loc.nth(i)
+                title = (await link_loc.inner_text() or "").lower()
                 keyword_lower = search_keyword.lower()
                 
                 # 3. 링크의 텍스트(제목)에 키워드가 포함되어 있는지 확인합니다.
                 if keyword_lower in title:
-                    href = link.get_attribute('href')
+                    href = await link_loc.get_attribute('href')
                     if href:
                         found_link = href
                         break # 4. 일치하는 첫 번째 링크를 찾으면 중단
