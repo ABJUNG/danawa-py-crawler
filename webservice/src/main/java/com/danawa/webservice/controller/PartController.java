@@ -58,21 +58,4 @@ public class PartController {
         String aiResponse = chatService.getAiResponse(userQuery);
         return ResponseEntity.ok(aiResponse);
     }
-    
-    /**
-     * [신규] AI 견적 추천을 요청하는 엔드포인트
-     * @param userQuery 사용자의 텍스트 입력 (예: "게이밍 PC 맞춰줘")
-     * @return AI가 생성한 견적 (JSON 문자열)
-     */
-    @GetMapping("/api/v1/chat/recommend")
-    public ResponseEntity<String> getAiRecommendation(@RequestParam String userQuery) {
-        try {
-            String recommendationJson = chatService.getAiRecommendation(userQuery);
-            // AI가 JSON 형식을 반환하므로, Content-Type을 application/json으로 설정
-            return ResponseEntity.ok()
-                    .header("Content-Type", "application/json; charset=UTF-8")
-                    .body(recommendationJson);
-        } catch (IOException e) {
-            e.printStackTrace();
-            return ResponseEntity.internalServerError().body("AI 견적 생성에 실패했습니다.");
 }
