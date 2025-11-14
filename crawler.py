@@ -1199,8 +1199,8 @@ async def scrape_cinebench_r23(browser, cpu_name, conn, part_id, category_name='
             print(f"        -> (정보) 검색 필드를 찾지 못해 전체 테이블 스캔")
         
         # 페이지 재로드 후 HTML 가져오기
-        new_page.wait_for_timeout(2000) # page. -> new_page.
-        html = new_page.content() # page. -> new_page.
+        await new_page.wait_for_timeout(2000) # page. -> new_page.
+        html = await new_page.content() # page. -> new_page.
         soup = BeautifulSoup(html, 'lxml')
         
         # 테이블 찾기 (여러 선택자 시도)
@@ -1399,7 +1399,7 @@ async def scrape_geekbench_v6(browser, cpu_name, conn, part_id):
         await new_page.goto(search_url, wait_until='networkidle', timeout=15000)
         await new_page.wait_for_timeout(3000)
         
-        html = new_page.content() # page. -> new_page.
+        html = await new_page.content() # page. -> new_page.
         soup = BeautifulSoup(html, 'lxml')
         
         # 검색 결과 항목 찾기 (.list-col-inner)
@@ -2119,27 +2119,27 @@ async def scrape_3dmark_generic(browser, gpu_name, conn, part_id, test_name: str
             
             # [수정] 이하 모든 page. 로직을 new_page. 로 변경
             try:
-                new_page.evaluate(f"window.location.hash = '#advanced?test={quote(test_code)}&scoreType=graphicsScore'")
-                new_page.wait_for_timeout(3000)
+                await new_page.evaluate(f"window.location.hash = '#advanced?test={quote(test_code)}&scoreType=graphicsScore'")
+                await new_page.wait_for_timeout(3000)
             except:
                 pass
             
             try:
                 result_type_select = new_page.locator('#resultTypeId')
-                result_type_select.wait_for(state='visible', timeout=10000)
-                result_type_select.select_option(value=test_code)
-                new_page.wait_for_timeout(2000)
+                await result_type_select.wait_for(state='visible', timeout=10000)
+                await result_type_select.select_option(value=test_code)
+                await new_page.wait_for_timeout(2000)
                 print(f"        -> (디버그) Benchmark 필터 설정: {test_code}")
             except Exception as e:
                 print(f"        -> (정보) Benchmark 필터 설정 실패: {type(e).__name__}")
             
             # Score 필터에서 Graphics Score 선택 (#scoreType)
             try:
-                new_page.wait_for_timeout(2000)  # scoreType이 동적으로 채워지므로 대기
+                await new_page.wait_for_timeout(2000)  # scoreType이 동적으로 채워지므로 대기
                 score_type_select = new_page.locator('#scoreType')
-                score_type_select.wait_for(state='visible', timeout=10000)
-                score_type_select.select_option(value='graphicsScore')
-                new_page.wait_for_timeout(2000)
+                await score_type_select.wait_for(state='visible', timeout=10000)
+                await score_type_select.select_option(value='graphicsScore')
+                await new_page.wait_for_timeout(2000)
                 print(f"        -> (디버그) Score 필터 설정: graphicsScore")
             except Exception as e:
                 print(f"        -> (정보) Score 필터 설정 실패: {type(e).__name__}")
@@ -2147,35 +2147,35 @@ async def scrape_3dmark_generic(browser, gpu_name, conn, part_id, test_name: str
             # GPU 필터에서 GPU 모델 검색 및 선택 (#gpuName)
             try:
                 gpu_name_input = new_page.locator('#gpuName')
-                gpu_name_input.wait_for(state='visible', timeout=10000)
-                gpu_name_input.fill(token)
-                new_page.wait_for_timeout(3000)  # 자동완성 대기
+                await gpu_name_input.wait_for(state='visible', timeout=10000)
+                await gpu_name_input.fill(token)
+                await new_page.wait_for_timeout(3000)  # 자동완성 대기
                 
                 # 자동완성 리스트에서 GPU 선택 (.gpuid-list li.list-item)
                 gpu_list_items = new_page.locator('.gpuid-list li.list-item')
-                if gpu_list_items.count() > 0:
-                    for i in range(min(gpu_list_items.count(), 10)):
+                if await gpu_list_items.count() > 0:
+                    for i in range(min(await gpu_list_items.count(), 10)):
                         item = gpu_list_items.nth(i)
-                        item_text = item.text_content()
+                        item_text = await item.text_content()
                         if token.upper() in item_text.upper():
-                            item.click()
-                            new_page.wait_for_timeout(3000)
+                            await item.click()
+                            await new_page.wait_for_timeout(3000)
                             print(f"        -> (디버그) GPU 선택: {item_text[:50]}")
                             break
             except Exception as e:
                 print(f"        -> (정보) GPU 필터 설정 실패: {type(e).__name__}")
             
             # 필터 변경 시 자동으로 검색이 실행되므로 결과 대기
-            new_page.wait_for_timeout(5000)
+            await new_page.wait_for_timeout(5000)
         
         # Average Score 추출 (#medianScore) - 여러 번 시도
         avg_score = None
         for attempt in range(3):  # 최대 3번 시도
             try:
                 median_score_element = new_page.locator('#medianScore') # page. -> new_page.
-                median_score_element.wait_for(state='visible', timeout=10000)
+                await median_score_element.wait_for(state='visible', timeout=10000)
                 
-                median_text = median_score_element.text_content().strip()
+                median_text = (await median_score_element.text_content()).strip()
                 if median_text and median_text != 'N/A' and median_text != '':
                     try:
                         avg_score = float(median_text.replace(',', ''))
@@ -2186,7 +2186,7 @@ async def scrape_3dmark_generic(browser, gpu_name, conn, part_id, test_name: str
                     except ValueError:
                         pass
             except:
-                new_page.wait_for_timeout(3000)  # 재시도 전 대기
+                await new_page.wait_for_timeout(3000)  # 재시도 전 대기
         
         if avg_score:
             # Average Score 저장
@@ -2195,7 +2195,7 @@ async def scrape_3dmark_generic(browser, gpu_name, conn, part_id, test_name: str
             return
         
         # 대체 방법: HTML에서 직접 추출
-        html = new_page.content()
+        html = await new_page.content()
         soup = BeautifulSoup(html, 'lxml')
         
         # #medianScore 요소 찾기
@@ -2446,45 +2446,50 @@ async def scrape_category(browser, page, engine, category_name, query, collect_r
         }
         
         # 각 아이템은 독립적인 DB 연결 사용 (트랜잭션 충돌 방지)
-        try:
-            with engine.connect() as conn:
-                with conn.begin(): # SQLAlchemy Connection에서 트랜잭션 시작
-                    # 기존 상품 확인 (가격 변동 체크)
-                    find_existing_sql = text("SELECT id, price FROM parts WHERE link = :link")
-                    existing_result = conn.execute(find_existing_sql, {"link": link})
-                    existing = existing_result.fetchone()
-                    
-                    part_id = None
-                    needs_update = False
-                    
-                    if existing:
-                        # 기존 상품이 존재
-                        part_id = existing[0]
-                        old_price = existing[1]
+        # 재시도 로직 추가 (DB Lock Timeout 대응)
+        max_retries = 3
+        retry_count = 0
+        
+        while retry_count < max_retries:
+            try:
+                with engine.connect() as conn:
+                    with conn.begin(): # SQLAlchemy Connection에서 트랜잭션 시작
+                        # 기존 상품 확인 (가격 변동 체크)
+                        find_existing_sql = text("SELECT id, price FROM parts WHERE link = :link")
+                        existing_result = conn.execute(find_existing_sql, {"link": link})
+                        existing = existing_result.fetchone()
                         
-                        if old_price != price:
-                            # 가격 변동이 있는 경우만 업데이트
-                            print(f"     -> 가격 변동 감지: {old_price}원 -> {price}원 (업데이트)")
-                            needs_update = True
-                        else:
-                            # 가격 변동 없음 - 벤치마크/리뷰만 확인
-                            print(f"     -> 가격 변동 없음 (건너뜀)")
-                            # 벤치마크/리뷰 수집은 계속 진행
-                    else:
-                        # 신규 상품
-                        needs_update = True
-                        print(f"     -> 신규 상품 발견")
-                    
-                    # 신규이거나 가격 변동이 있는 경우만 DB 업데이트
-                    if needs_update:
-                        result = conn.execute(sql_parts, parts_params)
-                        if not part_id:  # 신규 상품인 경우
-                            if result.lastrowid:
-                                part_id = result.lastrowid
+                        part_id = None
+                        needs_update = False
+                        
+                        if existing:
+                            # 기존 상품이 존재
+                            part_id = existing[0]
+                            old_price = existing[1]
+                            
+                            if old_price != price:
+                                # 가격 변동이 있는 경우만 업데이트
+                                print(f"     -> 가격 변동 감지: {old_price}원 -> {price}원 (업데이트)")
+                                needs_update = True
                             else:
-                                find_id_sql = text("SELECT id FROM parts WHERE link = :link")
-                                part_id_result = conn.execute(find_id_sql, {"link": link})
-                                part_id = part_id_result.scalar_one_or_none()
+                                # 가격 변동 없음 - 벤치마크/리뷰만 확인
+                                print(f"     -> 가격 변동 없음 (건너뜀)")
+                                # 벤치마크/리뷰 수집은 계속 진행
+                        else:
+                            # 신규 상품
+                            needs_update = True
+                            print(f"     -> 신규 상품 발견")
+                        
+                        # 신규이거나 가격 변동이 있는 경우만 DB 업데이트
+                        if needs_update:
+                            result = conn.execute(sql_parts, parts_params)
+                            if not part_id:  # 신규 상품인 경우
+                                if result.lastrowid:
+                                    part_id = result.lastrowid
+                                else:
+                                    find_id_sql = text("SELECT id FROM parts WHERE link = :link")
+                                    part_id_result = conn.execute(find_id_sql, {"link": link})
+                                    part_id = part_id_result.scalar_one_or_none()
 
                     if part_id:
                         # 벤치마크 수집 (CPU)
@@ -2561,9 +2566,25 @@ async def scrape_category(browser, page, engine, category_name, query, collect_r
 
                     # 트랜잭션은 with 블록 종료 시 자동 커밋됨
                     print(f"     [처리 완료] {name} (댓글: {review_count}) 저장 성공.")
-        except Exception as e:
-            # --- 👇 [수정 4] "오류" 로그 수정 및 들여쓰기 추가 ---
-            print(f"     [처리 오류] {name} 저장 중 오류 발생: {e}")
+                    break  # 성공 시 재시도 루프 탈출
+                    
+            except Exception as e:
+                # DB Lock Timeout 처리
+                error_msg = str(e)
+                if "1205" in error_msg or "Lock wait timeout" in error_msg:
+                    retry_count += 1
+                    if retry_count < max_retries:
+                        wait_time = retry_count * 0.5  # 0.5초, 1초, 1.5초 대기
+                        print(f"     [DB 락 타임아웃] {name} - {retry_count}/{max_retries}회 재시도 중... ({wait_time}초 대기)")
+                        await asyncio.sleep(wait_time)
+                        continue
+                    else:
+                        print(f"     [처리 오류] {name} 저장 중 오류 발생 (최대 재시도 횟수 초과): {e}")
+                        break
+                else:
+                    # 다른 오류는 즉시 중단
+                    print(f"     [처리 오류] {name} 저장 중 오류 발생: {e}")
+                    break
 
     for page_num in range(1, CRAWL_PAGES + 1): # CRAWL_PAGES 변수 사용하도록 수정
         if 'query=' in query: # 쿨러처럼 복잡한 쿼리 문자열인 경우
@@ -2609,8 +2630,8 @@ async def scrape_category(browser, page, engine, category_name, query, collect_r
             print(f"     -> {item_count}개 상품 아이템(locator) 감지. 파싱 시작...")
 
             # 3. BeautifulSoup 루프 대신 locator 루프 사용 - 제한된 병렬 처리
-            # ✅ Semaphore를 사용해 동시 실행 개수를 5개로 제한 (안정성 향상)
-            semaphore = asyncio.Semaphore(5)
+            # ✅ Semaphore를 사용해 동시 실행 개수를 3개로 제한 (DB 락 타임아웃 방지)
+            semaphore = asyncio.Semaphore(3)
             
             async def limited_process(item_loc):
                 async with semaphore:
