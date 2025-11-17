@@ -6,7 +6,7 @@ from sqlalchemy import create_engine, text
 import json
 import time
 from playwright_stealth import stealth_sync
-from urllib.parse import quote_plus, quote
+from urllib.parse import quote_plus, quote, quote as url_quote
 import requests
 import statistics
 import sys
@@ -36,15 +36,15 @@ DB_NAME = os.environ.get("DB_NAME", "danawa")
 
 # --- 3. 크롤링 카테고리 ---
 CATEGORIES = {
-        'CPU': 'cpu', 
-        '쿨러': 'cooler&attribute=687-4015-OR%2C687-4017-OR',
-        '메인보드': 'mainboard',
-        'RAM': 'RAM',
-        '그래픽카드': 'vga',
-        'SSD': 'ssd',
-        'HDD': 'hdd', 
-        '케이스': 'pc case',
-        '파워': 'power'
+        # 'CPU': 'cpu', 
+        # '쿨러': 'cooler&attribute=687-4015-OR%2C687-4017-OR',
+        # '메인보드': 'mainboard',
+         'RAM': 'RAM',
+        # '그래픽카드': 'vga',
+        # 'SSD': 'ssd',
+         'HDD': 'hdd', 
+        # '케이스': 'pc case',
+        # '파워': 'power'
 }
 
 # --- 5. SQLAlchemy 엔진 생성 (로컬 MySQL) ---
@@ -1021,7 +1021,7 @@ def extract_capacity_from_option(option_text, category_name):
     가격 옵션 텍스트에서 용량 정보 추출
     
     Args:
-        option_text: 가격 옵션 텍스트 (예: "4TB 629,940원", "16GB x2 140,000원", "1위 2TB 329,390원")
+        option_text: 가격 옵션 텍스트 (예: "4TB 629,940원", "32GB(16Gx2) 807,970원", "1위 2TB 329,390원")
         category_name: 카테고리 이름 ('RAM', 'SSD', 'HDD')
     
     Returns:
@@ -1030,35 +1030,80 @@ def extract_capacity_from_option(option_text, category_name):
     if not option_text:
         return None
     
-    # RAM의 경우: "16GB x2", "32GB (16GB x2)", "1위 32GB (16GB x2)" 등
+    # RAM의 경우: "32GB(16Gx2)", "48GB(24Gx2)", "16GB x2", "32GB (16GB x2)", "J 패키지" 등
     if category_name == 'RAM':
-        # "x2", "x4" 등의 패턴 찾기
-        x_pattern = re.search(r'(\d+GB)\s*x(\d+)', option_text, re.IGNORECASE)
-        if x_pattern:
-            single_capacity = x_pattern.group(1)  # 예: "16GB"
-            count = int(x_pattern.group(2))  # 예: 2
-            total_capacity = re.search(r'(\d+GB)', option_text)
-            if total_capacity and int(total_capacity.group(1).replace('GB', '')) == int(single_capacity.replace('GB', '')) * count:
-                return f"{total_capacity.group(1)} ({single_capacity} x{count})"
-            else:
-                return f"{single_capacity} x{count}"
+        # 패턴 1: "32GB(16Gx2)" 또는 "48GB(24Gx2)" - 괄호 안에 축약형
+        pattern1 = re.search(r'(\d+GB)\((\d+)Gx(\d+)\)', option_text, re.IGNORECASE)
+        if pattern1:
+            total_capacity = pattern1.group(1)  # 예: "32GB"
+            single_capacity_num = int(pattern1.group(2))  # 예: 16
+            count = int(pattern1.group(3))  # 예: 2
+            single_capacity = f"{single_capacity_num}GB"
+            return f"{total_capacity} ({single_capacity} x{count})"
         
-        # 단순 용량 패턴 (예: "32GB")
-        capacity_match = re.search(r'(\d+GB)', option_text)
+        # 패턴 2: "32GB(16GBx2)" - 괄호 안에 GB 포함
+        pattern2 = re.search(r'(\d+GB)\((\d+GB)x(\d+)\)', option_text, re.IGNORECASE)
+        if pattern2:
+            total_capacity = pattern2.group(1)  # 예: "32GB"
+            single_capacity = pattern2.group(2)  # 예: "16GB"
+            count = int(pattern2.group(3))  # 예: 2
+            return f"{total_capacity} ({single_capacity} x{count})"
+        
+        # 패턴 3: "16GB x2" 또는 "16GB x 2" - 공백 포함
+        pattern3 = re.search(r'(\d+GB)\s*x\s*(\d+)', option_text, re.IGNORECASE)
+        if pattern3:
+            single_capacity = pattern3.group(1)  # 예: "16GB"
+            count = int(pattern3.group(2))  # 예: 2
+            # 총 용량 계산
+            single_capacity_num = int(single_capacity.replace('GB', ''))
+            total_capacity_num = single_capacity_num * count
+            return f"{total_capacity_num}GB ({single_capacity} x{count})"
+        
+        # 패턴 4: "32GB (16GB x2)" - 괄호와 공백 포함
+        pattern4 = re.search(r'(\d+GB)\s*\((\d+GB)\s*x\s*(\d+)\)', option_text, re.IGNORECASE)
+        if pattern4:
+            total_capacity = pattern4.group(1)  # 예: "32GB"
+            single_capacity = pattern4.group(2)  # 예: "16GB"
+            count = int(pattern4.group(3))  # 예: 2
+            return f"{total_capacity} ({single_capacity} x{count})"
+        
+        # 패턴 5: "J 패키지" 또는 "K 패키지" 등 - 패키지 정보만 있는 경우
+        # 이 경우 용량 정보는 상품명에서 추출해야 하므로, 패키지 정보만 반환
+        package_match = re.search(r'([JK])\s*패키지', option_text, re.IGNORECASE)
+        if package_match:
+            # J 패키지 = 2개, K 패키지 = 4개 (일반적인 규칙)
+            package_type = package_match.group(1).upper()
+            package_count = 2 if package_type == 'J' else 4 if package_type == 'K' else 2
+            # 용량 정보가 함께 있는지 확인
+            capacity_match = re.search(r'(\d+GB)', option_text, re.IGNORECASE)
+            if capacity_match:
+                total_capacity = capacity_match.group(1)
+                # 단일 용량 추정 (총 용량 / 패키지 개수)
+                total_capacity_num = int(total_capacity.replace('GB', ''))
+                single_capacity_num = total_capacity_num // package_count
+                single_capacity = f"{single_capacity_num}GB"
+                return f"{total_capacity} ({single_capacity} x{package_count})"
+            else:
+                # 용량 정보가 없으면 패키지 정보만 반환
+                return f"{package_type} 패키지"
+        
+        # 패턴 6: 단순 용량 패턴 (예: "32GB") - 패키지 정보 없음
+        capacity_match = re.search(r'(\d+GB)', option_text, re.IGNORECASE)
         if capacity_match:
             return capacity_match.group(1)
     
     # SSD, HDD의 경우: "4TB", "2TB", "1TB", "512GB" 등
+    # 또는 "8TB 135원/1GB 1,079,080원" 같은 형식
     elif category_name in ['SSD', 'HDD']:
-        # TB 우선 검색
-        tb_match = re.search(r'(\d+TB)', option_text, re.IGNORECASE)
+        # TB 우선 검색 (숫자 + TB 패턴, 앞뒤 공백이나 다른 문자 허용)
+        tb_match = re.search(r'(\d+(?:\.\d+)?)\s*TB', option_text, re.IGNORECASE)
         if tb_match:
-            return tb_match.group(1)
+            return f"{tb_match.group(1)}TB"
         
-        # GB 검색
-        gb_match = re.search(r'(\d+GB)', option_text, re.IGNORECASE)
+        # GB 검색 (숫자 + GB 패턴)
+        gb_match = re.search(r'(\d+(?:\.\d+)?)\s*GB', option_text, re.IGNORECASE)
         if gb_match:
-            return gb_match.group(1)
+            return f"{gb_match.group(1)}GB"
     
     return None
 
@@ -2585,28 +2630,310 @@ async def scrape_category(browser, page, engine, category_name, query, collect_r
                 for i in range(price_link_count):
                     try:
                         price_link = price_sect_loc.locator('a').nth(i)
-                        # 가격 옵션 텍스트 (예: "4TB 629,940원" 또는 "16GB x2 140,000원")
-                        option_text = await price_link.inner_text(timeout=2000)
-                        price_strong = price_link.locator('strong').first
-                        price_text = await price_strong.inner_text(timeout=2000)
+                        
+                        # 각 가격 링크의 부모 p.price_sect 요소 찾기 (strict mode violation 방지)
+                        # JavaScript를 사용하여 부모 요소 찾기
+                        try:
+                            parent_price_sect = await price_link.evaluate('''(element) => {
+                                let parent = element.parentElement;
+                                while (parent && (parent.tagName !== 'P' || !parent.classList.contains('price_sect'))) {
+                                    parent = parent.parentElement;
+                                    if (!parent) break;
+                                }
+                                return parent;
+                            }''')
+                        except:
+                            parent_price_sect = None
+                        
+                        # 가격 텍스트 추출 (strong 태그 우선)
+                        price_text = None
+                        try:
+                            price_strong = price_link.locator('strong').first
+                            price_text = await price_strong.inner_text(timeout=2000)
+                        except:
+                            pass
+                        
+                        if not price_text:
+                            # strong 태그가 없으면 전체 텍스트에서 가격 추출
+                            option_text = await price_link.inner_text(timeout=2000)
+                            price_match = re.search(r'([\d,]+)\s*원', option_text)
+                            if price_match:
+                                price_text = price_match.group(1)
+                        
+                        if not price_text:
+                            continue
                         
                         # 가격 파싱
                         try:
                             price = int(price_text.strip().replace(',', ''))
-                            # 용량 정보 추출
-                            capacity = extract_capacity_from_option(option_text, category_name)
-                            if capacity:
-                                price_options.append({
-                                    'capacity': capacity,
-                                    'price': price,
-                                    'option_text': option_text
-                                })
-                        except (ValueError, Exception):
+                        except ValueError:
                             continue
-                    except Exception:
+                        
+                        # 가격 링크의 href에서 pcode 추출
+                        price_link_href = await price_link.get_attribute('href', timeout=1000) or ''
+                        pcode_match = re.search(r'pcode=(\d+)', price_link_href)
+                        current_pcode = pcode_match.group(1) if pcode_match else None
+                        
+                        # 용량 정보 추출 - 여러 방법 시도
+                        capacity = None
+                        debug_info = []  # 디버깅용 정보 수집
+                        
+                        # 방법 0: hidden input 필드에서 용량 정보 추출 (최우선)
+                        if current_pcode:
+                            try:
+                                # 상품 아이템 내의 hidden input 필드 찾기 (wishListBundleVal_로 시작하는 id)
+                                hidden_input_loc = item_loc.locator('input[id^="wishListBundleVal_"]').first
+                                hidden_value = await hidden_input_loc.get_attribute('value', timeout=1000)
+                                debug_info.append(f"hidden_input_value: '{hidden_value}'")
+                                
+                                if hidden_value:
+                                    # 형식: "4TB^69869606**2TB^69869573**1TB^69869543//삼성전자 990 EVO Plus M.2 NVMe//69869543"
+                                    # 또는: "32GB(16Gx2)^12345**16GB x2^67890//..."
+                                    # 각 용량^pcode 쌍을 파싱
+                                    # 먼저 "//"로 분리하여 용량 매핑 부분만 추출
+                                    parts = hidden_value.split('//')
+                                    if parts:
+                                        capacity_mapping = parts[0]  # "4TB^69869606**2TB^69869573**1TB^69869543"
+                                        # "**"로 분리하여 각 용량^pcode 쌍 확인
+                                        capacity_pairs = capacity_mapping.split('**')
+                                        for pair in capacity_pairs:
+                                            if '^' in pair:
+                                                cap, pcode = pair.split('^', 1)
+                                                if pcode == current_pcode:
+                                                    # 용량 추출 (예: "4TB", "32GB(16Gx2)")
+                                                    cap_raw = cap.strip()
+                                                    # extract_capacity_from_option으로 정규화 (RAM의 경우 패키지 정보 포함)
+                                                    capacity_normalized = extract_capacity_from_option(cap_raw, category_name)
+                                                    capacity = capacity_normalized if capacity_normalized else cap_raw
+                                                    debug_info.append(f"hidden_input에서 용량 발견: {cap_raw} -> {capacity} (pcode: {pcode})")
+                                                    break
+                            except Exception as e:
+                                debug_info.append(f"방법0(hidden_input)실패: {e}")
+                        
+                        # capacity가 설정되었으면 다른 방법들은 건너뛰기
+                        if not capacity:
+                            # 방법 1: 링크의 전체 텍스트에서 추출 (strong 제외한 텍스트)
+                            try:
+                                # 링크 내부의 모든 텍스트 노드 확인 (strong 제외)
+                                all_text = await price_link.evaluate('''(element) => {
+                                    let text = '';
+                                    for (let node of element.childNodes) {
+                                        if (node.nodeType === 3) { // Text node
+                                            text += node.textContent.trim() + ' ';
+                                        } else if (node.tagName && node.tagName !== 'STRONG') {
+                                            const nodeText = node.textContent ? node.textContent.trim() : '';
+                                            if (nodeText) text += nodeText + ' ';
+                                        }
+                                    }
+                                    return text.trim();
+                                }''')
+                                debug_info.append(f"링크내부텍스트(strong제외): '{all_text}'")
+                                if all_text:
+                                    capacity = extract_capacity_from_option(all_text, category_name)
+                            except Exception as e:
+                                debug_info.append(f"방법1실패: {e}")
+                        
+                        # 방법 2: 링크의 전체 inner_text에서 추출
+                        if not capacity:
+                            try:
+                                option_text = await price_link.inner_text(timeout=1000)
+                                debug_info.append(f"전체inner_text: '{option_text}'")
+                                # 가격 부분 제거하고 용량만 추출
+                                option_without_price = re.sub(r'[\d,]+원', '', option_text).strip()
+                                if option_without_price:
+                                    capacity = extract_capacity_from_option(option_without_price, category_name)
+                            except Exception as e:
+                                debug_info.append(f"방법2실패: {e}")
+                        
+                        # 방법 3: 링크의 title 속성 확인
+                        if not capacity:
+                            try:
+                                link_title = await price_link.get_attribute('title', timeout=1000)
+                                debug_info.append(f"title속성: '{link_title}'")
+                                if link_title:
+                                    capacity = extract_capacity_from_option(link_title, category_name)
+                            except Exception as e:
+                                debug_info.append(f"방법3실패: {e}")
+                        
+                        # 방법 4: 링크 앞의 텍스트 노드 확인 (형제 요소)
+                        if not capacity:
+                            try:
+                                # 부모 요소에서 링크 앞의 텍스트 확인
+                                parent_text = await price_link.evaluate('''(element) => {
+                                    const parent = element.parentElement;
+                                    if (!parent) return '';
+                                    let text = '';
+                                    for (let node of parent.childNodes) {
+                                        if (node === element) break;
+                                        if (node.nodeType === 3) {
+                                            text += node.textContent.trim() + ' ';
+                                        } else if (node.textContent) {
+                                            text += node.textContent.trim() + ' ';
+                                        }
+                                    }
+                                    return text.trim();
+                                }''')
+                                debug_info.append(f"부모요소앞텍스트: '{parent_text}'")
+                                if parent_text:
+                                    capacity = extract_capacity_from_option(parent_text, category_name)
+                            except Exception as e:
+                                debug_info.append(f"방법4실패: {e}")
+                        
+                        # 방법 4-2: 부모 요소의 전체 텍스트 확인 (가격 섹션 전체)
+                        if not capacity:
+                            try:
+                                # 각 가격 링크의 부모 p.price_sect 요소에서 텍스트 추출
+                                if parent_price_sect:
+                                    parent_full_text = await price_link.evaluate('''(element) => {
+                                        let parent = element.parentElement;
+                                        while (parent && (parent.tagName !== 'P' || !parent.classList.contains('price_sect'))) {
+                                            parent = parent.parentElement;
+                                            if (!parent) break;
+                                        }
+                                        return parent ? (parent.textContent || parent.innerText || '') : '';
+                                    }''')
+                                else:
+                                    parent_full_text = ''
+                                debug_info.append(f"가격섹션전체텍스트: '{parent_full_text[:200]}'")
+                                
+                                # 가격 텍스트 정규화 (쉼표 제거)
+                                price_normalized = price_text.replace(',', '')
+                                
+                                # 방법 4-2-1: 가격 앞의 텍스트에서 용량 추출
+                                if price_text in parent_full_text:
+                                    price_index = parent_full_text.find(price_text)
+                                    if price_index > 0:
+                                        before_price = parent_full_text[:price_index].strip()
+                                        capacity = extract_capacity_from_option(before_price, category_name)
+                                
+                                # 방법 4-2-2: 정규화된 가격으로 검색 (쉼표 없는 버전)
+                                if not capacity and price_normalized in parent_full_text:
+                                    price_index = parent_full_text.find(price_normalized)
+                                    if price_index > 0:
+                                        before_price = parent_full_text[:price_index].strip()
+                                        capacity = extract_capacity_from_option(before_price, category_name)
+                                
+                                # 방법 4-2-3: "/" 또는 줄바꿈으로 분리된 각 세그먼트에서 해당 가격 찾기
+                                if not capacity:
+                                    # 세그먼트 분리 (/, \n, 공백 여러 개 등)
+                                    segments = re.split(r'[/\n]+|\s{2,}', parent_full_text)
+                                    for segment in segments:
+                                        segment = segment.strip()
+                                        # 세그먼트에 현재 가격이 포함되어 있는지 확인
+                                        if price_text in segment or price_normalized in segment:
+                                            # 세그먼트에서 용량 추출
+                                            capacity = extract_capacity_from_option(segment, category_name)
+                                            if capacity:
+                                                break
+                                
+                                # 방법 4-2-4: 가격 섹션 전체에서 용량 패턴 직접 검색 (예: "8TB 135원/1GB 1,079,080원")
+                                if not capacity:
+                                    capacity = extract_capacity_from_option(parent_full_text, category_name)
+                            except Exception as e:
+                                debug_info.append(f"방법4-2실패: {e}")
+                        
+                        # 방법 4-3: 링크의 이전 형제 요소 확인
+                        if not capacity:
+                            try:
+                                prev_sibling_text = await price_link.evaluate('''(element) => {
+                                    let prev = element.previousElementSibling;
+                                    while (prev) {
+                                        if (prev.textContent && prev.textContent.trim()) {
+                                            return prev.textContent.trim();
+                                        }
+                                        prev = prev.previousElementSibling;
+                                    }
+                                    return '';
+                                }''')
+                                debug_info.append(f"이전형제요소: '{prev_sibling_text}'")
+                                if prev_sibling_text:
+                                    capacity = extract_capacity_from_option(prev_sibling_text, category_name)
+                            except Exception as e:
+                                debug_info.append(f"방법4-3실패: {e}")
+                        
+                        # 방법 5: 링크의 data 속성 확인
+                        if not capacity:
+                            try:
+                                data_capacity = await price_link.get_attribute('data-capacity', timeout=500)
+                                if not data_capacity:
+                                    data_capacity = await price_link.get_attribute('data-option', timeout=500)
+                                debug_info.append(f"data속성: '{data_capacity}'")
+                                if data_capacity:
+                                    capacity = extract_capacity_from_option(data_capacity, category_name)
+                            except:
+                                pass
+                        
+                        # 방법 6: 링크의 전체 HTML 구조 확인 (span, em 등 모든 요소)
+                        if not capacity:
+                            try:
+                                full_html = await price_link.evaluate('''(element) => {
+                                    return element.outerHTML;
+                                }''')
+                                debug_info.append(f"전체HTML: '{full_html[:300]}'")
+                                # HTML에서 용량 패턴 찾기
+                                if full_html:
+                                    capacity = extract_capacity_from_option(full_html, category_name)
+                            except Exception as e:
+                                debug_info.append(f"방법6실패: {e}")
+                        
+                        # 방법 7: 가격 섹션의 전체 HTML 구조 확인 (모든 형제 요소 포함)
+                        if not capacity:
+                            try:
+                                price_sect_html = await price_link.evaluate('''(element) => {
+                                    let parent = element.parentElement;
+                                    while (parent && (parent.tagName !== 'P' || !parent.classList.contains('price_sect'))) {
+                                        parent = parent.parentElement;
+                                        if (!parent) break;
+                                    }
+                                    return parent ? (parent.innerHTML || parent.outerHTML || '') : '';
+                                }''')
+                                debug_info.append(f"가격섹션HTML: '{price_sect_html[:300]}'")
+                                # HTML에서 용량 패턴 찾기
+                                if price_sect_html:
+                                    capacity = extract_capacity_from_option(price_sect_html, category_name)
+                            except Exception as e:
+                                debug_info.append(f"방법7실패: {e}")
+                        
+                        # 방법 8: 가격 링크의 다음 형제 요소 확인
+                        if not capacity:
+                            try:
+                                next_sibling_text = await price_link.evaluate('''(element) => {
+                                    let next = element.nextElementSibling;
+                                    while (next) {
+                                        if (next.textContent && next.textContent.trim()) {
+                                            return next.textContent.trim();
+                                        }
+                                        next = next.nextElementSibling;
+                                    }
+                                    return '';
+                                }''')
+                                debug_info.append(f"다음형제요소: '{next_sibling_text}'")
+                                if next_sibling_text:
+                                    capacity = extract_capacity_from_option(next_sibling_text, category_name)
+                            except Exception as e:
+                                debug_info.append(f"방법8실패: {e}")
+                        
+                        if capacity:
+                            price_options.append({
+                                'capacity': capacity,
+                                'price': price,
+                                'option_text': f"{capacity} {price_text}원"
+                            })
+                            print(f"         -> 옵션 발견: {capacity} - {price:,}원")
+                        else:
+                            # 디버깅 정보 출력 (처음 몇 개만)
+                            if len(price_options) < 5:  # 처음 5개만 상세 로그
+                                print(f"         -> (디버그) 용량 추출 실패 - 가격: {price_text}원")
+                                for info in debug_info:  # 모든 디버그 정보 출력
+                                    print(f"            {info}")
+                            else:
+                                print(f"         -> (경고) 용량 정보 추출 실패: {price_text}원")
+                    except Exception as e:
+                        print(f"         -> (경고) 옵션 처리 실패: {e}")
                         continue
                 
                 # 용량별 가격이 없으면 첫 번째 가격만 사용
+                # 단, 용량별 가격 옵션이 하나라도 있으면 용량 없는 기본 상품은 저장하지 않음
                 if not price_options:
                     price_tag_loc = item_loc.locator('p.price_sect > a').first.locator('strong').first
                     price_text = await price_tag_loc.inner_text(timeout=5000)
@@ -2620,6 +2947,24 @@ async def scrape_category(browser, page, engine, category_name, query, collect_r
                             })
                         except ValueError:
                             pass
+                else:
+                    # 용량별 가격 옵션이 있는 경우, 용량이 없는 옵션은 제거
+                    # (용량별 상품이 있는데 기본 상품도 저장하면 중복됨)
+                    price_options = [opt for opt in price_options if opt['capacity'] is not None]
+                    if not price_options:
+                        # 모든 옵션에서 용량을 찾지 못한 경우에만 기본 상품 저장
+                        price_tag_loc = item_loc.locator('p.price_sect > a').first.locator('strong').first
+                        price_text = await price_tag_loc.inner_text(timeout=5000)
+                        if '가격비교예정' not in price_text and '단종' not in price_text and price_text:
+                            try:
+                                price = int(price_text.strip().replace(',', ''))
+                                price_options.append({
+                                    'capacity': None,
+                                    'price': price,
+                                    'option_text': price_text
+                                })
+                            except ValueError:
+                                pass
             else:
                 # 다른 카테고리는 첫 번째 가격만 사용
                 price_tag_loc = item_loc.locator('p.price_sect > a').first.locator('strong').first
@@ -2721,17 +3066,30 @@ async def scrape_category(browser, page, engine, category_name, query, collect_r
             product_link = link
             if capacity:
                 # 상품명에 용량 정보가 없으면 추가
+                # RAM의 경우: "32GB (16GB x2)" 형태로 추가
+                # SSD/HDD의 경우: "1TB", "2TB", "4TB" 형태로 추가
                 if capacity not in product_name:
                     product_name = f"{name} ({capacity})"
-                # link에 용량 정보 추가하여 unique하게 만들기
-                product_link = f"{link}#capacity={capacity}"
+                # link에 용량 정보 추가하여 unique하게 만들기 (URL 인코딩)
+                encoded_capacity = url_quote(capacity, safe='')
+                product_link = f"{link}#capacity={encoded_capacity}"
             
             # 용량 정보를 스펙에 추가
             detailed_specs_with_capacity = detailed_specs.copy()
             if capacity:
                 if category_name == 'RAM':
+                    # RAM의 경우 capacity에 패키지 정보 포함 (예: "32GB (16GB x2)")
                     detailed_specs_with_capacity['capacity'] = capacity
+                    # 패키지 개수 추출
+                    package_match = re.search(r'x(\d+)', capacity)
+                    if package_match:
+                        detailed_specs_with_capacity['ram_count'] = f"{package_match.group(1)}개"
+                    # 총 용량 추출
+                    total_capacity_match = re.search(r'^(\d+GB)', capacity)
+                    if total_capacity_match:
+                        detailed_specs_with_capacity['total_capacity'] = total_capacity_match.group(1)
                 elif category_name in ['SSD', 'HDD']:
+                    # SSD/HDD의 경우 storage_capacity에 용량 정보 저장 (예: "1TB", "2TB", "4TB")
                     detailed_specs_with_capacity['storage_capacity'] = capacity
             
             # --- 4. (신규) 1단계: `parts` 테이블에 공통 정보 저장 ---

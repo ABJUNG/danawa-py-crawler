@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { formatPartName } from '../utils/partNameFormatter';
 
 function SidebarStack4({ userAnswers, estimateMode, selectedParts, aiExplanation, compatibilityResult, onBack, isActive }) {
     const [showAIMessage, setShowAIMessage] = useState(false);
@@ -40,9 +41,19 @@ function SidebarStack4({ userAnswers, estimateMode, selectedParts, aiExplanation
                         } else if (dbCategory === '그래픽카드') {
                             specs = `${specsObj.memory_capacity || ''} ${specsObj.memory_type || ''}`.trim();
                         } else if (dbCategory === 'RAM') {
-                            specs = `${specsObj.memory_capacity || ''} ${specsObj.memory_standard || ''}`.trim();
+                            // RAM의 경우 capacity 필드에 패키지 정보가 있으면 우선 사용
+                            if (specsObj.capacity) {
+                                specs = specsObj.capacity;
+                            } else {
+                                specs = `${specsObj.memory_capacity || ''} ${specsObj.memory_standard || ''}`.trim();
+                            }
                         } else if (dbCategory === 'SSD' || dbCategory === 'HDD') {
-                            specs = `${specsObj.storage_capacity || ''} ${specsObj.interface || ''}`.trim();
+                            // SSD/HDD의 경우 storage_capacity 필드 우선 사용
+                            if (specsObj.storage_capacity) {
+                                specs = `${specsObj.storage_capacity} ${specsObj.interface || ''}`.trim();
+                            } else {
+                                specs = `${specsObj.interface || ''}`.trim();
+                            }
                         } else if (dbCategory === '파워') {
                             specs = `${specsObj.rated_output || ''} ${specsObj.certification_80plus || ''}`.trim();
                         } else if (dbCategory === '메인보드') {
@@ -57,12 +68,17 @@ function SidebarStack4({ userAnswers, estimateMode, selectedParts, aiExplanation
                     specs = product.name || selectedParts[key].model;
                 }
 
+                // 상품명 포맷팅 (용량/개수 정보 추출)
+                const formatted = formatPartName(product.name || selectedParts[key].model, dbCategory);
+                
                 partsList.push({
                     category: dbCategory,
                     model: selectedParts[key].model,
-                    product: product.name || selectedParts[key].model,
+                    product: formatted.displayName,
                     price: product.price || 0,
                     specs: specs || selectedParts[key].model,
+                    capacity: formatted.capacity,
+                    package: formatted.package,
                 });
             }
         }
@@ -158,6 +174,16 @@ function SidebarStack4({ userAnswers, estimateMode, selectedParts, aiExplanation
                                             {item.product}
                                         </div>
                                         <div style={{ fontSize: '0.75rem', color: '#64748b' }}>📄 {item.specs}</div>
+                                        {item.capacity && (
+                                            <div style={{ fontSize: '0.7rem', color: '#2563eb', marginTop: '0.2rem', fontWeight: '600' }}>
+                                                💾 용량: {item.capacity}
+                                            </div>
+                                        )}
+                                        {item.package && (
+                                            <div style={{ fontSize: '0.7rem', color: '#2563eb', marginTop: '0.2rem', fontWeight: '600' }}>
+                                                📦 구성: {item.package}
+                                            </div>
+                                        )}
                                     </div>
                                     <div
                                         style={{

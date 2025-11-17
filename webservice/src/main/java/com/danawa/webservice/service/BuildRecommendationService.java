@@ -784,6 +784,28 @@ public class BuildRecommendationService {
             int totalPrice,
             CompatibilityResult compatibilityCheck) {
         
+        // 벤치마크와 리뷰를 로드하기 위해 Part를 다시 조회 (MultipleBagFetchException 방지)
+        Map<String, Part> partsWithData = new HashMap<>();
+        for (Map.Entry<String, Part> entry : selectedParts.entrySet()) {
+            Part part = entry.getValue();
+            // 벤치마크와 리뷰를 별도 쿼리로 로드 (MultipleBagFetchException 방지)
+            Part partWithBenchmarks = partRepository.findByIdWithBenchmarks(part.getId())
+                .orElse(part);
+            Part partWithReviews = partRepository.findByIdWithReviews(part.getId())
+                .orElse(part);
+            
+            // 벤치마크와 리뷰를 하나의 Part 객체에 합치기
+            // partWithReviews를 기본으로 사용하고, 벤치마크만 추가
+            // 벤치마크 리스트는 이미 초기화되어 있으므로 clear() 후 addAll() 사용
+            if (partWithBenchmarks.getBenchmarkResults() != null && 
+                !partWithBenchmarks.getBenchmarkResults().isEmpty()) {
+                partWithReviews.getBenchmarkResults().clear();
+                partWithReviews.getBenchmarkResults().addAll(partWithBenchmarks.getBenchmarkResults());
+            }
+            
+            partsWithData.put(entry.getKey(), partWithReviews);
+        }
+        
         // Gemini API 호출을 위한 프롬프트 구성
         StringBuilder prompt = new StringBuilder();
         prompt.append("# 페르소나\n");
@@ -796,13 +818,64 @@ public class BuildRecommendationService {
             totalPrice, (totalPrice * 100.0 / request.getBudget())));
         
         prompt.append("# 선택된 부품\n");
-        for (Map.Entry<String, Part> entry : selectedParts.entrySet()) {
+        for (Map.Entry<String, Part> entry : partsWithData.entrySet()) {
             Part part = entry.getValue();
             String specs = getPartKeySpecs(part);
+            
+            // 벤치마크 정보 수집
+            StringBuilder benchmarkInfo = new StringBuilder();
+            if (part.getBenchmarkResults() != null && !part.getBenchmarkResults().isEmpty()) {
+                // 주요 벤치마크만 선택 (CPU: Cinebench, GPU: 3DMark 등)
+                part.getBenchmarkResults().stream()
+                    .filter(b -> {
+                        String testName = b.getTestName().toLowerCase();
+                        return testName.contains("cinebench") || testName.contains("geekbench") || 
+                               testName.contains("3dmark") || testName.contains("blender");
+                    })
+                    .limit(3) // 최대 3개만
+                    .forEach(b -> {
+                        benchmarkInfo.append(String.format("%s %s: %.0f%s, ", 
+                            b.getTestName(), 
+                            b.getScenario() != null && !b.getScenario().isEmpty() ? b.getScenario() : "",
+                            b.getValue(),
+                            b.getUnit() != null ? b.getUnit() : ""));
+                    });
+            }
+            
+            // 리뷰 요약 정보 수집
+            StringBuilder reviewInfo = new StringBuilder();
+            if (part.getCommunityReviews() != null && !part.getCommunityReviews().isEmpty()) {
+                part.getCommunityReviews().stream()
+                    .filter(r -> r.getAiSummary() != null && !r.getAiSummary().isEmpty())
+                    .limit(1) // 첫 번째 리뷰 요약만
+                    .forEach(r -> {
+                        String summary = r.getAiSummary();
+                        // 요약이 너무 길면 자르기
+                        if (summary.length() > 200) {
+                            summary = summary.substring(0, 200) + "...";
+                        }
+                        reviewInfo.append(summary);
+                    });
+            }
+            
             prompt.append(String.format("- %s: %s (%,d원, 평점: %.1f/5.0, %s)\n",
                 entry.getKey(), part.getName(), part.getPrice(), 
                 part.getStarRating() != null ? part.getStarRating() : 0.0,
                 specs));
+            
+            // 벤치마크 정보 추가
+            if (benchmarkInfo.length() > 0) {
+                String benchStr = benchmarkInfo.toString().trim();
+                if (benchStr.endsWith(",")) {
+                    benchStr = benchStr.substring(0, benchStr.length() - 1);
+                }
+                prompt.append(String.format("  → 벤치마크: %s\n", benchStr));
+            }
+            
+            // 리뷰 요약 추가
+            if (reviewInfo.length() > 0) {
+                prompt.append(String.format("  → 리뷰 요약: %s\n", reviewInfo.toString()));
+            }
         }
         prompt.append("\n");
         
@@ -810,11 +883,12 @@ public class BuildRecommendationService {
         prompt.append(compatibilityCheck.getSummary()).append("\n\n");
         
         prompt.append("# 지시사항\n");
-        prompt.append("1. 각 부품 선택 이유를 용도에 맞게 설명해주세요.\n");
-        prompt.append("2. 예산 대비 가성비를 평가해주세요.\n");
+        prompt.append("1. 각 부품 선택 이유를 용도에 맞게 설명해주세요. 벤치마크 수치와 리뷰 요약을 참고하여 구체적으로 설명해주세요.\n");
+        prompt.append("2. 예산 대비 가성비를 평가해주세요. 벤치마크 성능 대비 가격을 고려하여 평가해주세요.\n");
         prompt.append("3. 호환성 문제가 있다면 주의사항을 알려주세요.\n");
-        prompt.append("4. 이 견적의 성능 수준을 간단히 평가해주세요.\n");
-        prompt.append("5. 총 4-6문장으로 친근하게 설명해주세요.\n\n");
+        prompt.append("4. 이 견적의 성능 수준을 벤치마크 데이터를 바탕으로 간단히 평가해주세요.\n");
+        prompt.append("5. 리뷰 요약에서 언급된 장점이나 단점이 있다면 자연스럽게 언급해주세요.\n");
+        prompt.append("6. 총 5-8문장으로 친근하고 전문적으로 설명해주세요.\n\n");
         
         prompt.append("# 출력 형식\n");
         prompt.append("간단한 텍스트 설명 (JSON 없이 자연스러운 문장으로)\n");

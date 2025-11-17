@@ -58,4 +58,17 @@ public class PartController {
         String aiResponse = chatService.getAiResponse(userQuery);
         return ResponseEntity.ok(aiResponse);
     }
+    
+    /**
+     * AI 추천 점수가 포함된 부품 목록을 반환하는 API
+     * 사용 목적과 예산에 맞춰 AI 점수를 계산합니다.
+     */
+    @GetMapping("/api/parts/ai-recommended")
+    public Page<PartResponseDto> getAIRecommendedParts(
+            @RequestParam MultiValueMap<String, String> allParams,
+            @RequestParam(required = false) String purpose,
+            @RequestParam(required = false) Integer budget,
+            Pageable pageable) {
+        return partService.findByFiltersWithAIScore(allParams, purpose, budget, pageable);
+    }
 }

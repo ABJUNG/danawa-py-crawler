@@ -358,10 +358,24 @@ public class ChatService {
             // 응답 파싱
             JSONObject responseJson = new JSONObject(response.getBody());
             
+            // candidates 배열 확인
+            if (!responseJson.has("candidates") || responseJson.getJSONArray("candidates").length() == 0) {
+                System.err.println("Gemini API 응답에 candidates가 없습니다.");
+                System.err.println("응답 본문: " + response.getBody());
+                throw new RuntimeException("Gemini API 응답에 candidates가 없습니다.");
+            }
+            
             // candidates[0].content.parts[0].text 경로로 응답 텍스트 추출
-            String aiResponse = responseJson
-                .getJSONArray("candidates")
-                .getJSONObject(0)
+            JSONObject candidate = responseJson.getJSONArray("candidates").getJSONObject(0);
+            
+            // safetyRatings 확인 (차단된 경우)
+            if (candidate.has("finishReason") && !candidate.getString("finishReason").equals("STOP")) {
+                String finishReason = candidate.getString("finishReason");
+                System.err.println("Gemini API 응답이 차단되었습니다. finishReason: " + finishReason);
+                throw new RuntimeException("Gemini API 응답이 차단되었습니다: " + finishReason);
+            }
+            
+            String aiResponse = candidate
                 .getJSONObject("content")
                 .getJSONArray("parts")
                 .getJSONObject(0)

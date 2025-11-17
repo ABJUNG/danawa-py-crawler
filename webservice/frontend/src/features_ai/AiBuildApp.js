@@ -337,6 +337,8 @@ function AiBuildApp() {
                             isActive={activeStack >= 3}
                             currentCategory={currentCategory}
                             currentModel={currentModel}
+                            userAnswers={userAnswers}
+                            aiPreferences={aiPreferences}
                         />
                     )}
 

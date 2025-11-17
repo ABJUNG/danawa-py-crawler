@@ -17,7 +17,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/builds")
 @RequiredArgsConstructor
-@CrossOrigin(origins = "*")  // CORS 설정
+@CrossOrigin(origins = "*", maxAge = 3600)  // CORS 설정
 public class BuildController {
     
     private final BuildRecommendationService buildRecommendationService;

@@ -1,4 +1,5 @@
 import React from 'react';
+import { formatPartName } from '../utils/partNameFormatter';
 
 function SidebarStack2({ onModelSelect, onPartEdit, onBack, isActive, selectedParts, partCategories, currentCategory }) {
     const handlePartEditClick = (categoryId) => {
@@ -146,17 +147,32 @@ function SidebarStack2({ onModelSelect, onPartEdit, onBack, isActive, selectedPa
                                             ✓ {part.model}
                                         </div>
                                     )}
-                                    {isConfirmed && part.product && (
-                                        <div>
-                                            <div style={{ fontSize: '0.75rem', color: '#475569', marginTop: '0.2rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                                                <span>📦</span>
-                                                <span>{part.product.name}</span>
+                                    {isConfirmed && part.product && (() => {
+                                        const formatted = formatPartName(part.product.name, category.name);
+                                        return (
+                                            <div>
+                                                <div style={{ fontSize: '0.75rem', color: '#475569', marginTop: '0.2rem', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                                                        <span>📦</span>
+                                                        <span>{formatted.displayName}</span>
+                                                    </div>
+                                                    {formatted.capacity && (
+                                                        <div style={{ fontSize: '0.7rem', color: '#2563eb', marginLeft: '1.5rem', fontWeight: '600' }}>
+                                                            용량: {formatted.capacity}
+                                                        </div>
+                                                    )}
+                                                    {formatted.package && (
+                                                        <div style={{ fontSize: '0.7rem', color: '#2563eb', marginLeft: '1.5rem', fontWeight: '600' }}>
+                                                            구성: {formatted.package}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                <div style={{ fontSize: '0.7rem', color: '#10b981', marginTop: '0.3rem', fontWeight: '500' }}>
+                                                    💡 클릭하여 다른 모델로 변경 가능
+                                                </div>
                                             </div>
-                                            <div style={{ fontSize: '0.7rem', color: '#10b981', marginTop: '0.3rem', fontWeight: '500' }}>
-                                                💡 클릭하여 다른 모델로 변경 가능
-                                            </div>
-                                        </div>
-                                    )}
+                                        );
+                                    })()}
                                     {isSelecting && (
                                         <div style={{ fontSize: '0.8rem', color: '#d97706', marginTop: '0.3rem', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
                                             <span className="pulse">⏳</span>

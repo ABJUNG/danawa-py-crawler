@@ -399,14 +399,14 @@ h1 {
     font-size: 1rem;
     font-weight: 700;
     margin: 0 0 0.5rem 0;
-    /* [수정] 카드 높이 일관성을 위해 min-height 고정 (약 2줄 분량) */
-    min-height: 2.8em; 
+    /* [수정] 카드 높이 일관성을 위해 min-height 고정 (약 3줄 분량) */
+    min-height: 4.2em; 
     line-height: 1.4em;
-    /* [수정] 2줄 초과 시 ... 처리 */
+    /* [수정] 3줄까지 표시, 초과 시 ... 처리 */
     overflow: hidden;
     text-overflow: ellipsis;
     display: -webkit-box;
-    -webkit-line-clamp: 2;
+    -webkit-line-clamp: 3;
     -webkit-box-orient: vertical;
     /* flex-grow: 1; 👈 이 속성은 삭제합니다 (가격 고정을 위해) */
     color: var(--text-color);

@@ -4,7 +4,7 @@ import axios from 'axios';
 // 백엔드 API 기본 URL
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8080';
 
-function SidebarStack3({ onProductConfirm, onBack, isActive, currentCategory, currentModel }) {
+function SidebarStack3({ onProductConfirm, onBack, isActive, currentCategory, currentModel, userAnswers, aiPreferences }) {
     const [sortBy, setSortBy] = useState('recommended');
     const [selectedBrand, setSelectedBrand] = useState(null);
     const [searchQuery, setSearchQuery] = useState('');
@@ -36,7 +36,7 @@ function SidebarStack3({ onProductConfirm, onBack, isActive, currentCategory, cu
     }, [currentCategory, isActive]);
 
     /**
-     * DB에서 제품 데이터 가져오기
+     * DB에서 제품 데이터 가져오기 (AI 점수 포함)
      * currentModel이 있으면 해당 모델명으로 필터링, 없으면 카테고리 전체 제품 가져오기
      */
     const loadProducts = async () => {
@@ -44,12 +44,23 @@ function SidebarStack3({ onProductConfirm, onBack, isActive, currentCategory, cu
         try {
             const dbCategory = getCategoryName(currentCategory);
             
+            // 사용자 예산 및 용도 추출
+            const budget = aiPreferences?.currentBudget || parseInt(userAnswers?.budget || '1500000');
+            let purpose = '게이밍'; // 기본값
+            if (aiPreferences?.usagePurposes && aiPreferences.usagePurposes.length > 0) {
+                purpose = aiPreferences.usagePurposes[0];
+            } else if (userAnswers?.purpose) {
+                purpose = userAnswers.purpose;
+            }
+            
             // API 파라미터 구성
             const params = {
                 category: dbCategory,
                 page: 0,
                 size: 100, // 최대 100개로 증가 (더 많은 제품 표시)
-                sort: 'starRating,desc' // 별점 높은 순
+                sort: 'starRating,desc', // 별점 높은 순
+                purpose: purpose, // 사용 목적 추가
+                budget: budget // 예산 추가
             };
             
             // currentModel이 있으면 키워드 검색으로 필터링
@@ -57,8 +68,8 @@ function SidebarStack3({ onProductConfirm, onBack, isActive, currentCategory, cu
                 params.keyword = currentModel;
             }
             
-            // 백엔드 API 호출
-            const response = await axios.get(`${API_BASE_URL}/api/parts`, { params });
+            // 백엔드 AI 추천 API 호출
+            const response = await axios.get(`${API_BASE_URL}/api/parts/ai-recommended`, { params });
 
             const data = response.data.content || [];
             
@@ -69,7 +80,7 @@ function SidebarStack3({ onProductConfirm, onBack, isActive, currentCategory, cu
                 price: part.price,
                 brand: part.manufacturer || '제조사 미상',
                 tags: generateTags(part),
-                aiScore: calculateAIScore(part),
+                aiScore: part.aiScore || 50, // 백엔드에서 계산한 AI 점수 사용
                 stock: '재고풍부', // DB에 재고 정보가 없으므로 기본값
                 shipping: part.price >= 30000 ? '무료배송' : '유료배송',
                 reviewCount: part.reviewCount || 0,
@@ -121,9 +132,15 @@ function SidebarStack3({ onProductConfirm, onBack, isActive, currentCategory, cu
     };
 
     /**
-     * AI 점수 계산 (별점, 리뷰 수, AI 요약 여부 등 종합)
+     * AI 점수 계산 (백엔드에서 계산하므로 사용하지 않지만, 폴백용으로 유지)
      */
     const calculateAIScore = (part) => {
+        // 백엔드에서 계산한 AI 점수가 있으면 사용
+        if (part.aiScore !== undefined && part.aiScore !== null) {
+            return part.aiScore;
+        }
+        
+        // 폴백: 간단한 로컬 계산
         let score = 50; // 기본 점수
         
         // 별점 (최대 30점)
@@ -355,7 +372,19 @@ function SidebarStack3({ onProductConfirm, onBack, isActive, currentCategory, cu
                                 </div>
 
                                 {/* 제품명 */}
-                                <div style={{ fontWeight: '600', fontSize: '0.95rem', marginBottom: '0.4rem', color: '#1e293b' }}>
+                                <div style={{ 
+                                    fontWeight: '600', 
+                                    fontSize: '0.95rem', 
+                                    marginBottom: '0.4rem', 
+                                    color: '#1e293b',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    display: '-webkit-box',
+                                    WebkitLineClamp: 3,
+                                    WebkitBoxOrient: 'vertical',
+                                    lineHeight: '1.4em',
+                                    minHeight: '4.2em'
+                                }}>
                                     {product.name}
                                 </div>
 

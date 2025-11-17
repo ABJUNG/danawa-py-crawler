@@ -41,6 +41,9 @@ services:
       SPRING_DATASOURCE_URL: jdbc:mysql://db:3306/danawa?useSSL=false&serverTimezone=Asia/Seoul&allowPublicKeyRetrieval=true
       SPRING_DATASOURCE_USERNAME: root
       SPRING_DATASOURCE_PASSWORD: 1234
+      # Hibernate DDL 설정: validate로 변경하여 테이블 수정 방지
+      SPRING_JPA_HIBERNATE_DDL_AUTO: validate
+      SPRING_JPA_DATABASE_PLATFORM: org.hibernate.dialect.MySQLDialect
       # TZ: Asia/Seoul # 필요시 시간대 설정
     # JAR 파일을 사용하여 애플리케이션 실행 (Dockerfile에서 빌드된 JAR 사용)
 

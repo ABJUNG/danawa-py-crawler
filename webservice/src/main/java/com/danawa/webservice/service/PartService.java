@@ -265,4 +265,179 @@ public class PartService {
         
         return Map.of("min", min, "max", max, "avg", avg);
     }
+    
+    /**
+     * AI 추천 점수가 포함된 부품 목록을 반환합니다.
+     * 사용 목적과 예산에 맞춰 AI 점수를 계산합니다.
+     */
+    public Page<PartResponseDto> findByFiltersWithAIScore(
+            MultiValueMap<String, String> filters, 
+            String purpose, 
+            Integer budget, 
+            Pageable pageable) {
+        // 기본 필터링
+        Specification<Part> spec = createSpecification(filters);
+        Page<Part> partPage = partRepository.findAll(spec, pageable);
+        
+        // 카테고리 추출
+        String category = filters.getFirst("category");
+        
+        // AI 점수 계산 및 DTO 변환
+        return partPage.map(part -> {
+            PartResponseDto dto = new PartResponseDto(part);
+            // AI 점수 계산
+            double aiScore = calculateAIScore(part, category, purpose, budget);
+            dto.setAiScore(aiScore);
+            return dto;
+        });
+    }
+    
+    /**
+     * AI 추천 점수 계산
+     * 사용 목적, 예산, 벤치마크, 리뷰 등을 종합적으로 고려합니다.
+     */
+    private double calculateAIScore(Part part, String category, String purpose, Integer budget) {
+        double score = 50.0; // 기본 점수
+        
+        // 1. 별점 (최대 20점)
+        if (part.getStarRating() != null) {
+            score += part.getStarRating() * 4.0;
+        }
+        
+        // 2. 리뷰 수 (최대 10점)
+        if (part.getReviewCount() != null) {
+            score += Math.min(part.getReviewCount() / 20.0, 10.0);
+        }
+        
+        // 3. 가격 대비 가성비 (최대 15점)
+        if (budget != null && budget > 0 && category != null) {
+            Map<String, Integer> priceRange = getPriceRangeForCategory(category);
+            int avgPrice = priceRange.get("avg");
+            int minPrice = priceRange.get("min");
+            int maxPrice = priceRange.get("max");
+            
+            if (avgPrice > 0) {
+                // 사용 목적에 따른 가격 점수 계산
+                double priceScore = calculatePriceScore(
+                    part.getPrice(), 
+                    avgPrice, 
+                    minPrice, 
+                    maxPrice, 
+                    purpose, 
+                    budget
+                );
+                score += priceScore;
+            }
+        }
+        
+        // 4. 사용 목적에 따른 가중치 (최대 10점)
+        score += calculatePurposeScore(part, category, purpose);
+        
+        // 5. 벤치마크 존재 여부 (5점)
+        if (part.getBenchmarkResults() != null && !part.getBenchmarkResults().isEmpty()) {
+            score += 5.0;
+        }
+        
+        // 6. 리뷰 요약 존재 여부 (5점)
+        if (part.getCommunityReviews() != null && 
+            part.getCommunityReviews().stream()
+                .anyMatch(r -> r.getAiSummary() != null && !r.getAiSummary().isEmpty())) {
+            score += 5.0;
+        }
+        
+        return Math.min(Math.round(score), 100.0);
+    }
+    
+    /**
+     * 가격 점수 계산 (최대 15점)
+     */
+    private double calculatePriceScore(
+            int price, 
+            int avgPrice, 
+            int minPrice, 
+            int maxPrice, 
+            String purpose, 
+            int budget) {
+        
+        // 예산 대비 가격 비율
+        double priceRatio = (double) price / budget;
+        
+        // 사용 목적에 따른 최적 가격 범위
+        if ("게이밍".equals(purpose) || "영상편집".equals(purpose)) {
+            // 게이밍이나 영상편집은 중상위권 가격대 선호
+            if (priceRatio >= 0.7 && priceRatio <= 1.0) {
+                return 15.0; // 예산의 70~100% 사용 시 최고 점수
+            } else if (priceRatio >= 0.5 && priceRatio < 0.7) {
+                return 10.0;
+            } else if (priceRatio > 1.0 && priceRatio <= 1.2) {
+                return 12.0; // 약간 초과는 허용
+            }
+        } else if ("사무용".equals(purpose) || "인터넷".equals(purpose)) {
+            // 사무용이나 인터넷은 가성비 중시
+            if (priceRatio >= 0.4 && priceRatio <= 0.7) {
+                return 15.0; // 예산의 40~70% 사용 시 최고 점수
+            } else if (priceRatio >= 0.3 && priceRatio < 0.4) {
+                return 12.0;
+            } else if (priceRatio > 0.7 && priceRatio <= 0.9) {
+                return 10.0;
+            }
+        } else {
+            // 기본: 예산의 60~90% 사용 시 최적
+            if (priceRatio >= 0.6 && priceRatio <= 0.9) {
+                return 15.0;
+            } else if (priceRatio >= 0.4 && priceRatio < 0.6) {
+                return 10.0;
+            } else if (priceRatio > 0.9 && priceRatio <= 1.1) {
+                return 12.0;
+            }
+        }
+        
+        // 평균 가격 대비 위치
+        double avgRatio = (double) price / avgPrice;
+        if (avgRatio >= 0.8 && avgRatio <= 1.2) {
+            return 8.0; // 평균 근처
+        } else if (avgRatio < 0.8) {
+            return 10.0; // 평균보다 저렴
+        }
+        
+        return 5.0; // 기본 점수
+    }
+    
+    /**
+     * 사용 목적에 따른 카테고리별 가중치 점수 (최대 10점)
+     */
+    private double calculatePurposeScore(Part part, String category, String purpose) {
+        if (purpose == null || category == null) {
+            return 5.0; // 기본 점수
+        }
+        
+        // 사용 목적별 중요 카테고리
+        Map<String, List<String>> purposeWeights = Map.of(
+            "게이밍", List.of("그래픽카드", "CPU", "RAM", "SSD"),
+            "영상편집", List.of("CPU", "RAM", "그래픽카드", "SSD"),
+            "사무용", List.of("CPU", "RAM", "SSD"),
+            "인터넷", List.of("CPU", "RAM"),
+            "프로그래밍", List.of("CPU", "RAM", "SSD")
+        );
+        
+        List<String> importantCategories = purposeWeights.getOrDefault(purpose, List.of());
+        
+        if (importantCategories.isEmpty()) {
+            return 5.0;
+        }
+        
+        // 카테고리 중요도에 따른 점수
+        int priority = importantCategories.indexOf(category);
+        if (priority == 0) {
+            return 10.0; // 최우선 카테고리
+        } else if (priority == 1) {
+            return 8.0;
+        } else if (priority == 2) {
+            return 6.0;
+        } else if (priority == 3) {
+            return 4.0;
+        }
+        
+        return 3.0; // 덜 중요한 카테고리
+    }
 }
