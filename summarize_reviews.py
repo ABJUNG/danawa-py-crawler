@@ -1,36 +1,31 @@
 import os
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
-from google.cloud.sql.connector import Connector
 import pymysql
 
-# [수정] Vertex AI SDK 임포트
-import vertexai
-from vertexai.generative_models import GenerativeModel, GenerationConfig
+# [수정] Google Generative AI (Gemini API) 사용
+import google.generativeai as genai
 
-# --- 1. DB 설정 (Cloud Run 환경 변수에서 가져옴) ---
-DB_USER = os.environ.get("DB_USER")
-DB_PASSWORD = os.environ.get("DB_PASS")
-DB_NAME = os.environ.get("DB_NAME")
-INSTANCE_CONNECTION_NAME = os.environ.get("INSTANCE_CONNECTION_NAME")
+# --- 1. DB 설정 (로컬 모드) ---
+DB_HOST = os.environ.get("DB_HOST", "localhost")
+DB_PORT = int(os.environ.get("DB_PORT", "3307"))
+DB_USER = os.environ.get("DB_USER", "root")
+DB_PASSWORD = os.environ.get("DB_PASSWORD", "1234")
+DB_NAME = os.environ.get("DB_NAME", "danawa")
 
-# --- 2. Vertex AI 프로젝트 설정 (환경 변수) ---
-PROJECT_ID = os.environ.get("GCP_PROJECT_ID") # 👈 [추가] GCP 프로젝트 ID
-LOCATION = "asia-northeast3"                 # 서울 리전
+# --- 2. Google Gemini API 설정 ---
+GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
 
-if not all([DB_USER, DB_PASSWORD, DB_NAME, INSTANCE_CONNECTION_NAME, PROJECT_ID]):
-    print("오류: 필요한 환경 변수(DB_*, INSTANCE_*, GCP_PROJECT_ID)가 모두 설정되지 않았습니다.")
+if not GOOGLE_API_KEY:
+    print("오류: GOOGLE_API_KEY 환경 변수가 설정되지 않았습니다.")
+    print("     .env 파일에 GOOGLE_API_KEY=your-api-key를 추가하세요.")
     exit()
 
-# [수정] Vertex AI 초기화 (API 키 필요 없음)
-vertexai.init(project=PROJECT_ID, location=LOCATION)
+# Gemini API 초기화
+genai.configure(api_key=GOOGLE_API_KEY)
 
 # --- 3. AI 모델 및 프롬프트 설정 ---
-generation_config = GenerationConfig(temperature=0.5) # [수정] GenerationConfig 객체 사용
-model = GenerativeModel(
-    'gemini-2.5-flash', # Vertex AI 모델명
-    generation_config=generation_config
-)
+model = genai.GenerativeModel('gemini-1.5-flash')
 
 SUMMARIZE_PROMPT_TEMPLATE = """
 당신은 PC 부품 전문 리뷰어입니다.
@@ -44,13 +39,13 @@ SUMMARIZE_PROMPT_TEMPLATE = """
 """
 
 def summarize_text(text_to_summarize):
-    """Vertex AI Gemini API를 호출하여 텍스트를 요약합니다."""
+    """Google Gemini API를 호출하여 텍스트를 요약합니다."""
     try:
         truncated_text = text_to_summarize[:15000]
         
         prompt = SUMMARIZE_PROMPT_TEMPLATE.format(review_text=truncated_text)
         
-        # [수정] Vertex AI SDK 호출 방식
+        # Gemini API 호출
         response = model.generate_content(prompt)
         
         return response.text.strip()
@@ -59,25 +54,17 @@ def summarize_text(text_to_summarize):
         return None
 
 def main():
-    connector = None
     try:
-        # [수정] Cloud SQL Connector 사용
-        print("Cloud SQL Connector 초기화 중...")
-        connector = Connector()
+        # 로컬 MySQL 연결
+        print(f"로컬 MySQL DB 연결 중... ({DB_HOST}:{DB_PORT}/{DB_NAME})")
         
-        def getconn():
-            conn = connector.connect(
-                INSTANCE_CONNECTION_NAME,
-                "pymysql",
-                user=DB_USER,
-                password=DB_PASSWORD,
-                db=DB_NAME
-            )
-            return conn
-
+        db_url = f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}?charset=utf8mb4"
+        
         engine = create_engine(
-            "mysql+pymysql://",
-            creator=getconn,
+            db_url,
+            pool_pre_ping=True,
+            pool_recycle=3600,
+            echo=False
         )
         
         Session = sessionmaker(bind=engine)
@@ -131,9 +118,7 @@ def main():
     except Exception as e:
         print(f"DB 연결 또는 작업 중 오류 발생: {e}")
     finally:
-        if connector:
-            connector.close()
-            print("DB 연결 종료.")
+        print("DB 연결 종료.")
 
 if __name__ == "__main__":
     main()

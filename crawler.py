@@ -10,8 +10,8 @@ from urllib.parse import quote_plus, quote
 import requests
 import statistics
 import sys
-from google.cloud.sql.connector import Connector
 import pymysql
+import os
 
 
 # --- 1. 기본 설정 ---
@@ -26,13 +26,13 @@ HEADLESS_MODE = True
 # 각 동작 사이의 지연 시간 (ms). 봇 탐지를 피하고 안정성을 높임 (50~100 추천)
 SLOW_MOTION = 20
 
-# --- 2. DB 설정 ---
-# [수정] 모든 DB 정보는 Cloud Run Job의 환경 변수에서 읽어옵니다.
-import os
-DB_USER = os.environ.get("DB_USER")
-DB_PASSWORD = os.environ.get("DB_PASS")
-DB_NAME = os.environ.get("DB_NAME")
-INSTANCE_CONNECTION_NAME = os.environ.get("INSTANCE_CONNECTION_NAME")
+# --- 2. DB 설정 (로컬 모드) ---
+# 환경 변수에서 읽거나, 기본값 사용 (docker-compose.yml 참고)
+DB_HOST = os.environ.get("DB_HOST", "localhost")
+DB_PORT = int(os.environ.get("DB_PORT", "3307"))
+DB_USER = os.environ.get("DB_USER", "root")
+DB_PASSWORD = os.environ.get("DB_PASSWORD", "1234")
+DB_NAME = os.environ.get("DB_NAME", "danawa")
 
 # --- 3. 크롤링 카테고리 ---
 CATEGORIES = {
@@ -47,34 +47,29 @@ CATEGORIES = {
         '파워': 'power'
 }
 
-# --- 5. SQLAlchemy 엔진 생성 ---
+# --- 5. SQLAlchemy 엔진 생성 (로컬 MySQL) ---
 try:
-    # [검증] 환경 변수가 제대로 설정되었는지 확인
-    if not all([DB_USER, DB_PASSWORD, DB_NAME, INSTANCE_CONNECTION_NAME]):
-        raise ValueError("DB_USER, DB_PASS, DB_NAME, INSTANCE_CONNECTION_NAME 환경 변수를 모두 설정해야 합니다.")
+    # [검증] DB 설정 확인
+    if not all([DB_HOST, DB_USER, DB_PASSWORD, DB_NAME]):
+        raise ValueError("DB_HOST, DB_USER, DB_PASSWORD, DB_NAME을 설정해야 합니다.")
 
-    connector = Connector()
-
-    # Cloud SQL 연결을 위한 헬퍼 함수
-    def getconn():
-        conn = connector.connect(
-            INSTANCE_CONNECTION_NAME,
-            "pymysql",
-            user=DB_USER,
-            password=DB_PASSWORD,
-            db=DB_NAME
-        )
-        return conn
-
-    # SQLAlchemy 엔진 생성 (연결 풀 사용)
+    # MySQL 연결 문자열 생성 (UTF-8 설정 강화)
+    db_url = f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}?charset=utf8mb4"
+    
+    # SQLAlchemy 엔진 생성
     engine = create_engine(
-        # [수정] "mysql+pymysql://" 사용
-        "mysql+pymysql://",
-        creator=getconn,
+        db_url,
+        pool_pre_ping=True,  # 연결 상태 확인
+        pool_recycle=3600,   # 1시간마다 연결 재생성
+        echo=False,  # SQL 로그 출력 여부
+        connect_args={
+            'charset': 'utf8mb4',
+            'init_command': "SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci"
+        }
     )
 
     with engine.connect() as conn:
-        print("Cloud SQL DB 연결 성공")
+        print(f"로컬 MySQL DB 연결 성공 ({DB_HOST}:{DB_PORT}/{DB_NAME})")
         # 벤치마크 결과 테이블이 없으면 생성
         
         create_bench_sql = text("""
@@ -1020,6 +1015,52 @@ def parse_case_specs(name, spec_string):
         specs['case_height'] = m.group(1)
 
     return specs
+
+def extract_capacity_from_option(option_text, category_name):
+    """
+    가격 옵션 텍스트에서 용량 정보 추출
+    
+    Args:
+        option_text: 가격 옵션 텍스트 (예: "4TB 629,940원", "16GB x2 140,000원", "1위 2TB 329,390원")
+        category_name: 카테고리 이름 ('RAM', 'SSD', 'HDD')
+    
+    Returns:
+        용량 문자열 (예: "4TB", "32GB (16GB x2)", "2TB") 또는 None
+    """
+    if not option_text:
+        return None
+    
+    # RAM의 경우: "16GB x2", "32GB (16GB x2)", "1위 32GB (16GB x2)" 등
+    if category_name == 'RAM':
+        # "x2", "x4" 등의 패턴 찾기
+        x_pattern = re.search(r'(\d+GB)\s*x(\d+)', option_text, re.IGNORECASE)
+        if x_pattern:
+            single_capacity = x_pattern.group(1)  # 예: "16GB"
+            count = int(x_pattern.group(2))  # 예: 2
+            total_capacity = re.search(r'(\d+GB)', option_text)
+            if total_capacity and int(total_capacity.group(1).replace('GB', '')) == int(single_capacity.replace('GB', '')) * count:
+                return f"{total_capacity.group(1)} ({single_capacity} x{count})"
+            else:
+                return f"{single_capacity} x{count}"
+        
+        # 단순 용량 패턴 (예: "32GB")
+        capacity_match = re.search(r'(\d+GB)', option_text)
+        if capacity_match:
+            return capacity_match.group(1)
+    
+    # SSD, HDD의 경우: "4TB", "2TB", "1TB", "512GB" 등
+    elif category_name in ['SSD', 'HDD']:
+        # TB 우선 검색
+        tb_match = re.search(r'(\d+TB)', option_text, re.IGNORECASE)
+        if tb_match:
+            return tb_match.group(1)
+        
+        # GB 검색
+        gb_match = re.search(r'(\d+GB)', option_text, re.IGNORECASE)
+        if gb_match:
+            return gb_match.group(1)
+    
+    return None
 
 def parse_power_specs(name, spec_string):
     """파워 파싱 로직 개선 (사용자 요청 스펙 모두 반영)"""
@@ -2529,22 +2570,73 @@ async def scrape_category(browser, page, engine, category_name, query, collect_r
         # 4. Locator를 사용하여 각 요소를 추출 (이 과정에서 Playwright가 자동으로 대기함)
         try:
             name_tag_loc = item_loc.locator('p.prod_name > a')
-            price_tag_loc = item_loc.locator('p.price_sect > a').first.locator('strong').first
             img_tag_loc = item_loc.locator('div.thumb_image img.lazyload, div.thumb_image img:not([alt*="옵션마크"])').first
             
             name = await name_tag_loc.inner_text(timeout=5000)
             link = await name_tag_loc.get_attribute('href', timeout=5000)
-            price_text = await price_tag_loc.inner_text(timeout=5000)
-
-            # ✅ 가격 정보 검증 (단종, 가격비교예정 등 건너뛰기)
-            if '가격비교예정' in price_text or '단종' in price_text or not price_text:
-                # print(f"  - (정보) {name} (가격 정보 없음, 건너뜀)")
-                return
+            
+            # ✅ 용량별 가격 수집 (RAM, SSD, HDD의 경우)
+            price_options = []
+            if category_name in ['RAM', 'SSD', 'HDD']:
+                # 가격 섹션에서 모든 가격 옵션 가져오기
+                price_sect_loc = item_loc.locator('p.price_sect')
+                price_link_count = await price_sect_loc.locator('a').count()
                 
-            try:
-                price = int(price_text.strip().replace(',', ''))
-            except ValueError:
-                # print(f"  - (경고) {name} (가격 파싱 실패: {price_text}, 건너뜀)")
+                for i in range(price_link_count):
+                    try:
+                        price_link = price_sect_loc.locator('a').nth(i)
+                        # 가격 옵션 텍스트 (예: "4TB 629,940원" 또는 "16GB x2 140,000원")
+                        option_text = await price_link.inner_text(timeout=2000)
+                        price_strong = price_link.locator('strong').first
+                        price_text = await price_strong.inner_text(timeout=2000)
+                        
+                        # 가격 파싱
+                        try:
+                            price = int(price_text.strip().replace(',', ''))
+                            # 용량 정보 추출
+                            capacity = extract_capacity_from_option(option_text, category_name)
+                            if capacity:
+                                price_options.append({
+                                    'capacity': capacity,
+                                    'price': price,
+                                    'option_text': option_text
+                                })
+                        except (ValueError, Exception):
+                            continue
+                    except Exception:
+                        continue
+                
+                # 용량별 가격이 없으면 첫 번째 가격만 사용
+                if not price_options:
+                    price_tag_loc = item_loc.locator('p.price_sect > a').first.locator('strong').first
+                    price_text = await price_tag_loc.inner_text(timeout=5000)
+                    if '가격비교예정' not in price_text and '단종' not in price_text and price_text:
+                        try:
+                            price = int(price_text.strip().replace(',', ''))
+                            price_options.append({
+                                'capacity': None,
+                                'price': price,
+                                'option_text': price_text
+                            })
+                        except ValueError:
+                            pass
+            else:
+                # 다른 카테고리는 첫 번째 가격만 사용
+                price_tag_loc = item_loc.locator('p.price_sect > a').first.locator('strong').first
+                price_text = await price_tag_loc.inner_text(timeout=5000)
+                if '가격비교예정' not in price_text and '단종' not in price_text and price_text:
+                    try:
+                        price = int(price_text.strip().replace(',', ''))
+                        price_options.append({
+                            'capacity': None,
+                            'price': price,
+                            'option_text': price_text
+                        })
+                    except ValueError:
+                        pass
+            
+            # 가격 정보가 없으면 건너뛰기
+            if not price_options:
                 return
             
             img_src = await img_tag_loc.get_attribute('data-src', timeout=2000) or \
@@ -2618,154 +2710,182 @@ async def scrape_category(browser, page, engine, category_name, query, collect_r
 
         print(f"\n   [처리 시작] {name}") # 한 줄 띄우고 시작
         
-        # --- 4. (신규) 1단계: `parts` 테이블에 공통 정보 저장 ---
-        parts_params = {
-            "name": name, "category": category_name, "price": price, "link": link,
-            "img_src": img_src, "manufacturer": manufacturer, 
-            "review_count": review_count, "star_rating": star_rating,
-            "warranty_info": warranty_info
-        }
-        
-        # 각 아이템은 독립적인 DB 연결 사용 (트랜잭션 충돌 방지)
-        # 재시도 로직 추가 (DB Lock Timeout 대응)
-        max_retries = 3
-        retry_count = 0
-        
-        while retry_count < max_retries:
-            try:
-                with engine.connect() as conn:
-                    with conn.begin(): # SQLAlchemy Connection에서 트랜잭션 시작
-                        # 기존 상품 확인 (가격 변동 체크)
-                        find_existing_sql = text("SELECT id, price FROM parts WHERE link = :link")
-                        existing_result = conn.execute(find_existing_sql, {"link": link})
-                        existing = existing_result.fetchone()
-                        
-                        part_id = None
-                        needs_update = False
-                        
-                        if existing:
-                            # 기존 상품이 존재
-                            part_id = existing[0]
-                            old_price = existing[1]
+        # --- 4. 용량별로 상품 저장 (RAM, SSD, HDD의 경우) ---
+        # 각 용량별 가격 옵션을 별도 상품으로 저장
+        for price_option in price_options:
+            capacity = price_option['capacity']
+            price = price_option['price']
+            
+            # 상품명에 용량 정보 추가 (용량이 있는 경우)
+            product_name = name
+            product_link = link
+            if capacity:
+                # 상품명에 용량 정보가 없으면 추가
+                if capacity not in product_name:
+                    product_name = f"{name} ({capacity})"
+                # link에 용량 정보 추가하여 unique하게 만들기
+                product_link = f"{link}#capacity={capacity}"
+            
+            # 용량 정보를 스펙에 추가
+            detailed_specs_with_capacity = detailed_specs.copy()
+            if capacity:
+                if category_name == 'RAM':
+                    detailed_specs_with_capacity['capacity'] = capacity
+                elif category_name in ['SSD', 'HDD']:
+                    detailed_specs_with_capacity['storage_capacity'] = capacity
+            
+            # --- 4. (신규) 1단계: `parts` 테이블에 공통 정보 저장 ---
+            parts_params = {
+                "name": product_name, "category": category_name, "price": price, "link": product_link,
+                "img_src": img_src, "manufacturer": manufacturer, 
+                "review_count": review_count, "star_rating": star_rating,
+                "warranty_info": warranty_info
+            }
+            
+            # 각 아이템은 독립적인 DB 연결 사용 (트랜잭션 충돌 방지)
+            # 재시도 로직 추가 (DB Lock Timeout 대응)
+            max_retries = 3
+            retry_count = 0
+            
+            while retry_count < max_retries:
+                try:
+                    with engine.connect() as conn:
+                        with conn.begin(): # SQLAlchemy Connection에서 트랜잭션 시작
+                            # 기존 상품 확인 (가격 변동 체크) - link로 확인
+                            find_existing_sql = text("SELECT id, price FROM parts WHERE link = :link")
+                            existing_result = conn.execute(find_existing_sql, {"link": product_link})
+                            existing = existing_result.fetchone()
                             
-                            if old_price != price:
-                                # 가격 변동이 있는 경우만 업데이트
-                                print(f"     -> 가격 변동 감지: {old_price}원 -> {price}원 (업데이트)")
-                                needs_update = True
-                            else:
-                                # 가격 변동 없음 - 벤치마크/리뷰만 확인
-                                print(f"     -> 가격 변동 없음 (건너뜀)")
-                                # 벤치마크/리뷰 수집은 계속 진행
-                        else:
-                            # 신규 상품
-                            needs_update = True
-                            print(f"     -> 신규 상품 발견")
-                        
-                        # 신규이거나 가격 변동이 있는 경우만 DB 업데이트
-                        if needs_update:
-                            result = conn.execute(sql_parts, parts_params)
-                            if not part_id:  # 신규 상품인 경우
-                                if result.lastrowid:
-                                    part_id = result.lastrowid
+                            part_id = None
+                            needs_update = False
+                            
+                            if existing:
+                                # 기존 상품이 존재
+                                part_id = existing[0]
+                                old_price = existing[1]
+                                
+                                if old_price != price:
+                                    # 가격 변동이 있는 경우만 업데이트
+                                    print(f"     -> [{capacity or '기본'}] 가격 변동 감지: {old_price}원 -> {price}원 (업데이트)")
+                                    needs_update = True
                                 else:
-                                    find_id_sql = text("SELECT id FROM parts WHERE link = :link")
-                                    part_id_result = conn.execute(find_id_sql, {"link": link})
-                                    part_id = part_id_result.scalar_one_or_none()
-
-                    if part_id:
-                        # 벤치마크 수집 (CPU)
-                        if collect_benchmarks and category_name == 'CPU':
-                            # 이미 벤치마크가 존재하는지 확인
-                            bench_exists = conn.execute(text(
-                                "SELECT EXISTS(SELECT 1 FROM benchmark_results WHERE part_id=:pid)"
-                            ), {"pid": part_id}).scalar()
-                            
-                            if bench_exists == 1:
-                                print(f"         -> (건너뜀) CPU 벤치마크가 이미 존재합니다.")
+                                    # 가격 변동 없음 - 벤치마크/리뷰만 확인
+                                    print(f"     -> [{capacity or '기본'}] 가격 변동 없음 (건너뜀)")
+                                    # 벤치마크/리뷰 수집은 계속 진행
                             else:
-                                await scrape_cinebench_r23(browser, name, conn, part_id, category_name)
-                                await asyncio.sleep(0.5)
-                                await scrape_geekbench_v6(browser, name, conn, part_id)
-                                await asyncio.sleep(0.5)
-                                scrape_blender_median(None, name, conn, part_id)
-                                await asyncio.sleep(0.5)
-
-                        # GPU 벤치마크 수집
-                        if collect_benchmarks and category_name == '그래픽카드':
-                            common_label, token = _normalize_gpu_model(name)
-                            # 동일 모델에 대한 벤치가 이미 존재하는지 확인
-                            exists_any = conn.execute(text(
-                                "SELECT EXISTS(SELECT 1 FROM benchmark_results WHERE part_type='GPU' AND cpu_model=:m)"
-                            ), {"m": common_label}).scalar()
+                                # 신규 상품
+                                needs_update = True
+                                print(f"     -> [{capacity or '기본'}] 신규 상품 발견: {product_name} ({price:,}원)")
                             
-                            if exists_any == 1:
-                                print(f"         -> (건너뜀) {common_label} GPU 벤치마크가 이미 존재합니다.")
-                            else:
-                                print(f"         -> GPU 벤치마크 수집 시도...")
-                                scrape_blender_gpu(page, common_label, conn, part_id)
-                                await asyncio.sleep(2)
-                                await scrape_3dmark_generic(browser, common_label, conn, part_id, 'Fire Strike', 'https://www.3dmark.com/search#advanced/fs')
-                                await asyncio.sleep(2)
-                                await scrape_3dmark_generic(browser, common_label, conn, part_id, 'Time Spy', 'https://www.3dmark.com/search#advanced/spy')
-                                await asyncio.sleep(2)
-                                await scrape_3dmark_generic(browser, common_label, conn, part_id, 'Port Royal', 'https://www.3dmark.com/search#advanced/pr')
-                                await asyncio.sleep(2)
+                            # 신규이거나 가격 변동이 있는 경우만 DB 업데이트
+                            if needs_update:
+                                result = conn.execute(sql_parts, parts_params)
+                                if not part_id:  # 신규 상품인 경우
+                                    if result.lastrowid:
+                                        part_id = result.lastrowid
+                                    else:
+                                        find_id_sql = text("SELECT id FROM parts WHERE link = :link")
+                                        part_id_result = conn.execute(find_id_sql, {"link": product_link})
+                                        part_id = part_id_result.scalar_one_or_none()
 
-                        # 스펙 저장 (신규이거나 가격 변동이 있는 경우만)
-                        if needs_update:
-                            specs_json = json.dumps(detailed_specs, ensure_ascii=False)
-                            specs_params = {
-                                "part_id": part_id,
-                                "specs": specs_json
-                            }
-                            conn.execute(sql_specs, specs_params)
-                            
-                            # part_spec.id를 parts.part_spec_id에 연결
-                            get_spec_id_sql = text("SELECT id FROM part_spec WHERE part_id = :part_id")
-                            spec_id_result = conn.execute(get_spec_id_sql, {"part_id": part_id})
-                            spec_id = spec_id_result.scalar_one_or_none()
-                            
-                            if spec_id:
-                                update_parts_sql = text("""
-                                    UPDATE parts
-                                    SET part_spec_id = :spec_id
-                                    WHERE id = :part_id
-                                """)
-                                conn.execute(update_parts_sql, {"spec_id": spec_id, "part_id": part_id})
-                                print(f"         -> parts 테이블 연결 완료 (part_id: {part_id} -> spec_id: {spec_id})")
+                            # part_id가 확보된 경우에만 스펙 저장 (트랜잭션 블록 안에서 실행)
+                            if part_id:
+                                # 스펙 저장 (항상 업데이트 - 스펙이 변경될 수 있으므로)
+                                specs_json = json.dumps(detailed_specs_with_capacity, ensure_ascii=False)
+                                
+                                # 기존 part_spec 확인
+                                check_spec_sql = text("SELECT id FROM part_spec WHERE part_id = :part_id")
+                                existing_spec = conn.execute(check_spec_sql, {"part_id": part_id}).fetchone()
+                                
+                                if existing_spec:
+                                    # 기존 스펙이 있으면 UPDATE
+                                    update_spec_sql = text("""
+                                        UPDATE part_spec 
+                                        SET specs = :specs, updated_at = CURRENT_TIMESTAMP
+                                        WHERE part_id = :part_id
+                                    """)
+                                    conn.execute(update_spec_sql, {"part_id": part_id, "specs": specs_json})
+                                    spec_id = existing_spec[0]
+                                    print(f"         -> [{capacity or '기본'}] 스펙 업데이트 완료 (part_id: {part_id} -> spec_id: {spec_id})")
+                                else:
+                                    # 기존 스펙이 없으면 INSERT
+                                    conn.execute(sql_specs, {"part_id": part_id, "specs": specs_json})
+                                    
+                                    # part_spec.id를 parts.part_spec_id에 연결
+                                    get_spec_id_sql = text("SELECT id FROM part_spec WHERE part_id = :part_id")
+                                    spec_id_result = conn.execute(get_spec_id_sql, {"part_id": part_id})
+                                    spec_id = spec_id_result.scalar_one_or_none()
+                                    
+                                    if spec_id:
+                                        print(f"         -> [{capacity or '기본'}] 스펙 저장 완료 (part_id: {part_id} -> spec_id: {spec_id})")
+                                
+                                # part_spec.id를 parts.part_spec_id에 연결 (항상 업데이트)
+                                if spec_id:
+                                    update_parts_sql = text("""
+                                        UPDATE parts
+                                        SET part_spec_id = :spec_id
+                                        WHERE id = :part_id
+                                    """)
+                                    conn.execute(update_parts_sql, {"spec_id": spec_id, "part_id": part_id})
+                                    if needs_update:
+                                        print(f"         -> [{capacity or '기본'}] parts 테이블 연결 완료 (part_id: {part_id} -> spec_id: {spec_id})")
 
-                        # 퀘이사존 리뷰 수집
-                        if collect_reviews and part_id:
-                            review_exists_result = conn.execute(sql_check_review, {"part_id": part_id})
-                            review_exists = review_exists_result.scalar() == 1
+                            if part_id:
+                                # 벤치마크 수집 (CPU) - --benchmarks 플래그 선택 시에만 수집
+                                if collect_benchmarks and category_name == 'CPU':
+                                    print(f"         -> [{capacity or '기본'}] CPU 벤치마크 수집 중... (--benchmarks 플래그 활성화)")
+                                    await scrape_cinebench_r23(browser, product_name, conn, part_id, category_name)
+                                    await asyncio.sleep(0.5)
+                                    await scrape_geekbench_v6(browser, product_name, conn, part_id)
+                                    await asyncio.sleep(0.5)
+                                    scrape_blender_median(None, product_name, conn, part_id)
+                                    await asyncio.sleep(0.5)
+                                elif category_name == 'CPU':
+                                    print(f"         -> [{capacity or '기본'}] CPU 벤치마크 수집 건너뜀 (--benchmarks 플래그 미설정)")
 
-                            if not review_exists:
-                                print(f"             -> 퀘이사존 리뷰 없음, 수집 시도...")
-                                await scrape_quasarzone_reviews(browser, conn, sql_review, part_id, name, category_name, detailed_specs)
-                            else:
-                                print(f"             -> (건너뜀) 퀘이사존 리뷰가 이미 존재합니다.")
+                                # GPU 벤치마크 수집 - --benchmarks 플래그 선택 시에만 수집
+                                if collect_benchmarks and category_name == '그래픽카드':
+                                    common_label, token = _normalize_gpu_model(product_name)
+                                    print(f"         -> [{capacity or '기본'}] GPU 벤치마크 수집 중... ({common_label}, --benchmarks 플래그 활성화)")
+                                    scrape_blender_gpu(page, common_label, conn, part_id)
+                                    await asyncio.sleep(2)
+                                    await scrape_3dmark_generic(browser, common_label, conn, part_id, 'Fire Strike', 'https://www.3dmark.com/search#advanced/fs')
+                                    await asyncio.sleep(2)
+                                    await scrape_3dmark_generic(browser, common_label, conn, part_id, 'Time Spy', 'https://www.3dmark.com/search#advanced/spy')
+                                    await asyncio.sleep(2)
+                                    await scrape_3dmark_generic(browser, common_label, conn, part_id, 'Port Royal', 'https://www.3dmark.com/search#advanced/pr')
+                                    await asyncio.sleep(2)
+                                elif category_name == '그래픽카드':
+                                    print(f"         -> [{capacity or '기본'}] GPU 벤치마크 수집 건너뜀 (--benchmarks 플래그 미설정)")
+
+                                # 퀘이사존 리뷰 수집 - --reviews 플래그 선택 시에만 수집
+                                if collect_reviews and part_id:
+                                    print(f"             -> [{capacity or '기본'}] 퀘이사존 리뷰 수집 중... (--reviews 플래그 활성화)")
+                                    await scrape_quasarzone_reviews(browser, conn, sql_review, part_id, product_name, category_name, detailed_specs_with_capacity)
+                                elif part_id:
+                                    print(f"             -> [{capacity or '기본'}] 퀘이사존 리뷰 수집 건너뜀 (--reviews 플래그 미설정)")
 
                     # 트랜잭션은 with 블록 종료 시 자동 커밋됨
-                    print(f"     [처리 완료] {name} (댓글: {review_count}) 저장 성공.")
+                    print(f"     [처리 완료] {product_name} (용량: {capacity or '기본'}, 가격: {price:,}원)")
                     break  # 성공 시 재시도 루프 탈출
                     
-            except Exception as e:
-                # DB Lock Timeout 처리
-                error_msg = str(e)
-                if "1205" in error_msg or "Lock wait timeout" in error_msg:
-                    retry_count += 1
-                    if retry_count < max_retries:
-                        wait_time = retry_count * 0.5  # 0.5초, 1초, 1.5초 대기
-                        print(f"     [DB 락 타임아웃] {name} - {retry_count}/{max_retries}회 재시도 중... ({wait_time}초 대기)")
-                        await asyncio.sleep(wait_time)
-                        continue
+                except Exception as e:
+                    # DB Lock Timeout 처리
+                    error_msg = str(e)
+                    if "1205" in error_msg or "Lock wait timeout" in error_msg:
+                        retry_count += 1
+                        if retry_count < max_retries:
+                            wait_time = retry_count * 0.5  # 0.5초, 1초, 1.5초 대기
+                            print(f"     [DB 락 타임아웃] {product_name} - {retry_count}/{max_retries}회 재시도 중... ({wait_time}초 대기)")
+                            await asyncio.sleep(wait_time)
+                            continue
+                        else:
+                            print(f"     [처리 오류] {product_name} 저장 중 오류 발생 (최대 재시도 횟수 초과): {e}")
+                            break
                     else:
-                        print(f"     [처리 오류] {name} 저장 중 오류 발생 (최대 재시도 횟수 초과): {e}")
+                        # 다른 오류는 즉시 중단
+                        print(f"     [처리 오류] {product_name} 저장 중 오류 발생: {e}")
                         break
-                else:
-                    # 다른 오류는 즉시 중단
-                    print(f"     [처리 오류] {name} 저장 중 오류 발생: {e}")
-                    break
 
     for page_num in range(1, CRAWL_PAGES + 1): # CRAWL_PAGES 변수 사용하도록 수정
         if 'query=' in query: # 쿨러처럼 복잡한 쿼리 문자열인 경우
@@ -2860,9 +2980,59 @@ def get_search_keyword(part_name, category_name, detailed_specs):
         if match:
             return match.group(1)
 
-    # 3. 기타 부품 (이름에서 제조사 + 괄호 내용 제외)
+    # 3. 파워 (시리즈명 추출 강화)
+    if category_name == '파워':
+        # 파워 제품명 패턴: "제조사 시리즈명 용량 인증등급 기타"
+        # 예: "FSP VITA GD 750W 80PLUS골드 ATX 3.1"
+        # 예: "CORSAIR RM1000e ETA플래티넘 ATX3.1 화이트"
+        # 예: "마이크로닉스 Classic II 풀체인지 800W 80PLUS실버 ATX3.1"
+        
+        # 제조사 제거 (첫 단어)
+        words = part_name.split()
+        if len(words) > 1:
+            remaining = " ".join(words[1:])
+        else:
+            remaining = part_name
+        
+        # 시리즈명 추출 전략: 숫자+문자 조합이나 특수 키워드 찾기
+        # 패턴 1: 연속된 대문자+숫자 조합 (RM1000e, GX-1000, A750GL 등)
+        series_match = re.search(r'([A-Z]{2,}[\w-]*\d+[\w]*)', remaining, re.I)
+        if series_match:
+            return series_match.group(1)
+        
+        # 패턴 2: 특정 시리즈명 (Classic, FOCUS, MegaMax 등)
+        series_keywords = [
+            'Classic', 'FOCUS', 'MegaMax', 'STARS', 'VITA', 'MEG', 
+            'Compact', 'GSK', 'NEW', 'ETA', 'Ai', 'GEMINI'
+        ]
+        for keyword in series_keywords:
+            if keyword in remaining:
+                # 키워드 + 다음 단어까지 (예: "Classic II", "FOCUS V4", "NEW FOCUS")
+                keyword_idx = remaining.find(keyword)
+                after_keyword = remaining[keyword_idx:].split()
+                
+                # "NEW FOCUS" 같은 2단어 조합 처리
+                if keyword == 'NEW' and len(after_keyword) >= 3:
+                    return f"{after_keyword[0]} {after_keyword[1]} {after_keyword[2]}"
+                elif len(after_keyword) >= 2:
+                    return f"{after_keyword[0]} {after_keyword[1]}"
+                return after_keyword[0]
+        
+        # 패턴 3: 일반 시리즈명 (앞 2~3 단어, W/인증등급 제외)
+        clean = re.sub(r'\d{3,4}W', '', remaining)  # 용량 제거
+        clean = re.sub(r'80PLUS\S*', '', clean)  # 인증등급 제거
+        clean = re.sub(r'ATX[\d.]*', '', clean, re.I)  # ATX3.1 제거
+        clean = re.sub(r'풀모듈러|세미모듈러|논모듈러', '', clean)  # 모듈러 타입 제거
+        clean = ' '.join(clean.split())  # 중복 공백 제거
+        
+        words = clean.split()
+        if len(words) >= 2:
+            return f"{words[0]} {words[1]}"
+        elif len(words) == 1:
+            return words[0]
+    
+    # 4. 기타 부품 (이름에서 제조사 + 괄호 내용 제외)
     # 예: "MSI MAG A750GL 80PLUS골드..." -> "MAG A750GL"
-    # 예: "맥스엘리트 파워 서플라이 STARS GEMINI 650W 80PLUS 브론즈" -> "STARS GEMINI"
     
     # 일반적인 불필요 단어 제거
     noise_words = ['파워', '서플라이', '케이스', '쿨러', 'RGB', '정품', '블랙', '화이트']
@@ -2917,14 +3087,20 @@ async def scrape_quasarzone_reviews(browser, conn, sql_review, part_id, part_nam
             new_page = await browser.new_page(
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
             )
-            await new_page.goto(q_url, wait_until='load', timeout=30000) # page. -> new_page.
+            
+            # Cloud Run 환경 대응: 여러 wait_until 전략 시도
+            try:
+                await new_page.goto(q_url, wait_until='networkidle', timeout=30000)
+            except Exception as e:
+                print(f"         -> (경고) networkidle 실패, load로 재시도: {type(e).__name__}")
+                await new_page.goto(q_url, wait_until='load', timeout=30000)
         except Exception as e:
             print(f"         -> (오류) 검색 페이지 로딩 실패: {e}") # 6칸 -> 8칸
             return
 
         # [수정] 이하 모든 page. 로직을 new_page. 로 변경
         await new_page.mouse.wheel(0, 1200)
-        await new_page.wait_for_timeout(2000)  # 동적 콘텐츠 로딩 대기
+        await new_page.wait_for_timeout(3000)  # 동적 콘텐츠 로딩 대기 (2초 -> 3초)
 
         # 쿠팡 광고 섹션을 제외하고 실제 검색 결과만 찾기
         # 퀘이사존 검색 결과는 일반적으로 특정 영역에 표시됨
@@ -2940,6 +3116,20 @@ async def scrape_quasarzone_reviews(browser, conn, sql_review, part_id, part_nam
             all_links_loc = new_page.locator(links_selector)
             links_count = await all_links_loc.count()
             print(f"         -> 검색 결과 페이지에서 {links_count}개의 게시판 링크 발견")
+            
+            # 디버깅: 링크가 없으면 페이지 상태 확인
+            if links_count == 0:
+                try:
+                    page_text = await new_page.locator('body').inner_text()
+                    if '검색 결과가 없습니다' in page_text or '결과가 없습니다' in page_text:
+                        print(f"         -> (정보) 퀘이사존에 '{search_keyword}' 검색 결과가 없습니다.")
+                    else:
+                        print(f"         -> (경고) 페이지 로딩 문제 가능성 (게시판 링크를 찾을 수 없음)")
+                        # 페이지 일부 내용 출력
+                        preview = page_text[:200].replace('\n', ' ')
+                        print(f"         -> (디버그) 페이지 미리보기: {preview}...")
+                except Exception as debug_e:
+                    print(f"         -> (디버그 오류) {debug_e}")
             
             # 키워드 정규화: 공백, 특수문자 제거하여 매칭률 높이기
             def normalize_text(text):
@@ -3079,7 +3269,7 @@ async def scrape_quasarzone_reviews(browser, conn, sql_review, part_id, part_nam
             await new_page.goto(review_url, wait_until='load', timeout=30000)
         
         # 추가 대기: JavaScript 렌더링 시간 확보
-        await new_page.wait_for_timeout(2000)
+        await new_page.wait_for_timeout(3000)
         
         # [수정] 여러 셀렉터 시도 (퀘이사존 페이지 구조 변경 대응)
         content_element = None
@@ -3088,27 +3278,65 @@ async def scrape_quasarzone_reviews(browser, conn, sql_review, part_id, part_nam
             '.article-content',        # 대체 셀렉터 1
             '.content-body',           # 대체 셀렉터 2
             'article .view-body',      # 대체 셀렉터 3
-            '.board-read .content'     # 대체 셀렉터 4
+            '.board-read .content',    # 대체 셀렉터 4
+            '.board-article-content',  # 대체 셀렉터 5
+            '[class*="view-content"]', # 대체 셀렉터 6 (부분 일치)
+            '[class*="article-content"]', # 대체 셀렉터 7 (부분 일치)
+            'article',                 # 대체 셀렉터 8 (가장 넓은 범위)
         ]
         
         for selector in selectors:
             try:
                 element = new_page.locator(selector)
-                if await element.count() > 0 and await element.first.is_visible(timeout=5000):
-                    content_element = element.first
-                    print(f"         -> (디버그) 본문 발견: {selector}")
-                    break
-            except Exception:
+                count = await element.count()
+                if count > 0:
+                    first = element.first
+                    # is_visible 체크 시간 단축 (Cloud Run 대응)
+                    try:
+                        is_visible = await first.is_visible(timeout=3000)
+                        if is_visible:
+                            content_element = first
+                            print(f"         -> (디버그) 본문 발견: {selector}")
+                            break
+                    except:
+                        # timeout 시에도 요소가 있으면 시도
+                        content_element = first
+                        print(f"         -> (디버그) 본문 발견 (visibility timeout): {selector}")
+                        break
+            except Exception as e:
                 continue
         
         if content_element is None:
             print("         -> (오류) 리뷰 본문을 찾을 수 없습니다. (모든 셀렉터 시도 실패)")
-            # [디버깅] 페이지 스크린샷 저장 (선택사항)
+            # [디버깅] 상세 정보 출력
             try:
-                await new_page.screenshot(path=f"debug_screenshot_{part_id}.png")
+                # 페이지 제목 확인
+                page_title = await new_page.title()
+                print(f"         -> (디버그) 페이지 제목: {page_title}")
+                
+                # 페이지 URL 확인
+                current_url = new_page.url
+                print(f"         -> (디버그) 현재 URL: {current_url}")
+                
+                # 페이지 소스의 일부 확인 (body 태그 존재 여부)
+                body_exists = await new_page.locator('body').count()
+                print(f"         -> (디버그) body 태그 존재: {body_exists > 0}")
+                
+                # 주요 클래스 확인
+                main_classes = await new_page.locator('[class*="content"], [class*="article"], [class*="view"]').count()
+                print(f"         -> (디버그) content/article/view 관련 요소 수: {main_classes}")
+                
+                # 스크린샷 저장
+                await new_page.screenshot(path=f"debug_screenshot_{part_id}.png", full_page=True)
                 print(f"         -> (디버그) 스크린샷 저장: debug_screenshot_{part_id}.png")
-            except:
-                pass
+                
+                # HTML 일부 저장 (디버깅용)
+                html_content = await new_page.content()
+                with open(f"debug_html_{part_id}.html", "w", encoding="utf-8") as f:
+                    f.write(html_content[:50000])  # 처음 50KB만 저장
+                print(f"         -> (디버그) HTML 일부 저장: debug_html_{part_id}.html")
+            except Exception as debug_e:
+                print(f"         -> (디버그 오류) {debug_e}")
             return # [수정] finally가 실행되도록 return
                 
         raw_text = await content_element.inner_text()
@@ -3261,18 +3489,78 @@ async def run_crawler(collect_reviews=False, collect_benchmarks=False):
 
 if __name__ == "__main__":
     # 1. 명령줄 인수(sys.argv)에서 선택지를 읽어옵니다.
-    # 예: python crawler.py --reviews --benchmarks
     args = sys.argv
+    
+    # 2. 플래그 확인 (--reviews, --benchmarks)
+    has_reviews_flag = "--reviews" in args
+    has_benchmarks_flag = "--benchmarks" in args
+    
+    # 3. 플래그가 하나도 없으면 항상 대화형 메뉴 표시 (강제)
+    if not has_reviews_flag and not has_benchmarks_flag:
+        print("\n" + "="*60)
+        print("🕷️  다나와 PC 부품 크롤러")
+        print("="*60)
+        print("\n수집할 데이터를 선택하세요:\n")
+        print("  1️⃣  다나와 제품 정보만 (필수) ⚡ 빠름 (5-10분)")
+        print("     → 제품 정보 + 상세 스펙")
+        print()
+        print("  2️⃣  다나와 + 퀘이사존 리뷰 🗨️ (15-25분)")
+        print("     → 제품 정보 + 상세 스펙 + 퀘이사존 리뷰")
+        print()
+        print("  3️⃣  다나와 + 벤치마크 📊 (20-30분)")
+        print("     → 제품 정보 + 상세 스펙 + CPU/GPU 벤치마크")
+        print()
+        print("  4️⃣  모두 수집 🚀 완전 수집 (30-45분)")
+        print("     → 제품 정보 + 상세 스펙 + 리뷰 + 벤치마크")
+        print()
+        print("  0️⃣  취소")
+        print()
+        
+        # stdin을 강제로 flush하고 입력 받기
+        import sys
+        sys.stdout.flush()
+        sys.stderr.flush()
+        
+        try:
+            choice = input("선택 (0-4): ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\n\n❌ 입력이 취소되었습니다. 기본 수집(다나와만)을 시작합니다.")
+            choice = "1"
+        
+        if choice == "0":
+            print("\n❌ 크롤링이 취소되었습니다.")
+            sys.exit(0)
+        elif choice == "1":
+            collect_reviews = False
+            collect_benchmarks = False
+            print("\n✅ 다나와 제품 정보만 수집합니다.")
+        elif choice == "2":
+            collect_reviews = True
+            collect_benchmarks = False
+            print("\n✅ 다나와 + 퀘이사존 리뷰를 수집합니다.")
+        elif choice == "3":
+            collect_reviews = False
+            collect_benchmarks = True
+            print("\n✅ 다나와 + 벤치마크를 수집합니다.")
+        elif choice == "4":
+            collect_reviews = True
+            collect_benchmarks = True
+            print("\n✅ 모든 데이터를 수집합니다. (시간이 오래 걸립니다)")
+        else:
+            print("\n❌ 잘못된 선택입니다. 기본 수집(다나와만)을 시작합니다.")
+            collect_reviews = False
+            collect_benchmarks = False
+    else:
+        # 플래그가 있으면 그대로 사용
+        collect_reviews = has_reviews_flag
+        collect_benchmarks = has_benchmarks_flag
+        print("\n💡 플래그로 직접 실행 (대화형 메뉴 건너뜀)")
 
-    # 2. '--reviews' 인수가 있으면 True, 없으면 False가 됩니다.
-    collect_reviews = "--reviews" in args
-    # 3. '--benchmarks' 인수가 있으면 True, 없으면 False가 됩니다.
-    collect_benchmarks = "--benchmarks" in args
-
-    print("="*60)
+    print("\n" + "="*60)
     print("크롤러 실행 옵션:")
-    print(f" - 퀘이사존 리뷰 수집: {'수집함' if collect_reviews else '건너뜀 (활성화하려면 --reviews 인수 추가)'}")
-    print(f" - 벤치마크 정보 수집: {'수집함' if collect_benchmarks else '건너뜀 (활성화하려면 --benchmarks 인수 추가)'}")
+    print(f" - 다나와 제품 정보: ✅ 항상 수집")
+    print(f" - 퀘이사존 리뷰 수집: {'✅ 수집함' if collect_reviews else '❌ 건너뜀'}")
+    print(f" - 벤치마크 정보 수집: {'✅ 수집함' if collect_benchmarks else '❌ 건너뜀'}")
     print("="*60 + "\n")
 
     # 4. AI 견적 추천 시스템 데이터 초기화

@@ -21,3 +21,12 @@ public interface CompatibilityRuleRepository extends JpaRepository<Compatibility
 
 
 
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,626 @@
+/* ============================================
+   Reset & Base Styles
+   ============================================ */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+    background: #f8fafc;
+    color: #1e293b;
+    min-height: 100vh;
+    overflow-x: hidden;
+}
+
+#root {
+    min-height: 100vh;
+}
+
+/* ============================================
+   Fixed Navigation Bar
+   ============================================ */
+.navbar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    background: #ffffff;
+    border-bottom: 1px solid #e2e8f0;
+    padding: 1rem 2rem;
+    z-index: 1000;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.nav-brand {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #1e293b;
+    letter-spacing: -0.5px;
+}
+
+/* ============================================
+   Phase 1: Intro Screen
+   ============================================ */
+.intro-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding-top: 80px;
+    cursor: pointer;
+    transition: opacity 0.5s ease-out;
+}
+
+.intro-container.fade-out {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.intro-message {
+    background: #ffffff;
+    border-radius: 20px;
+    padding: 3rem;
+    max-width: 600px;
+    text-align: center;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
+    border: 1px solid #e2e8f0;
+}
+
+.intro-ai-name {
+    font-size: 1.3rem;
+    font-weight: 600;
+    color: #2563eb;
+    margin-bottom: 1.5rem;
+}
+
+.intro-content {
+    font-size: 1.1rem;
+    line-height: 1.8;
+    color: #1e293b;
+}
+
+/* ============================================
+   Phase 1: Chat UI
+   ============================================ */
+.chat-container {
+    width: 100%;
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 50vh 2rem 50vh 2rem;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.chat-message {
+    display: flex;
+    margin-bottom: 2rem;
+    animation: slideUp 0.4s ease-out;
+}
+
+.chat-message.ai {
+    justify-content: flex-start;
+}
+
+.chat-message.user {
+    justify-content: flex-end;
+}
+
+/* Avatar Styles */
+.chat-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    margin: 0 12px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+}
+
+.chat-avatar.ai {
+    background: linear-gradient(135deg, #3b82f6, #2563eb);
+    color: white;
+}
+
+.chat-avatar.user {
+    background: #cbd5e1;
+    color: #64748b;
+}
+
+/* Chat Bubble */
+.chat-bubble {
+    max-width: 70%;
+    padding: 1.2rem 1.5rem;
+    border-radius: 16px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+}
+
+.chat-bubble.ai {
+    background: #ffffff;
+    color: #1e293b;
+    border: 1px solid #e2e8f0;
+}
+
+.chat-bubble.user {
+    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+    color: #ffffff;
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+}
+
+.chat-text {
+    font-size: 1rem;
+    line-height: 1.6;
+}
+
+/* Options Container */
+.options-container {
+    display: flex;
+    flex-direction: column;
+    gap: 0.8rem;
+    margin-top: 1.2rem;
+}
+
+.option-button {
+    background: linear-gradient(135deg, #e2e8f0, #cbd5e1);
+    color: #1e293b;
+    border: none;
+    border-radius: 10px;
+    padding: 14px 24px;
+    font-size: 0.95rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.25s ease;
+    text-align: left;
+}
+
+.option-button:hover {
+    background: #2563eb;
+    color: #f8fafc;
+    transform: scale(1.03);
+}
+
+/* ============================================
+   Phase 2: Sidebar Stacks
+   ============================================ */
+.sidebar-layout {
+    display: flex;
+    position: fixed;
+    top: 80px;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    overflow: hidden;
+}
+
+.sidebar-stack {
+    background: #ffffff;
+    border-right: 1px solid #e2e8f0;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+    overflow: visible;
+    transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.sidebar-stack.slide-in {
+    animation: slideInFromLeft 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes slideInFromLeft {
+    from {
+        transform: translateX(-100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+/* Stack 1: 320px width */
+.sidebar-stack-1 {
+    width: 320px;
+}
+
+/* Stack 2: 350px width */
+.sidebar-stack-2 {
+    width: 350px;
+}
+
+/* Stack 3: 380px width */
+.sidebar-stack-3 {
+    width: 380px;
+}
+
+/* Stack 4: Fills remaining space */
+.sidebar-stack-4 {
+    flex: 1;
+    min-width: 500px;
+}
+
+.sidebar-header {
+    padding: 1.5rem;
+    border-bottom: 1px solid #e2e8f0;
+    background: #f8fafc;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+.sidebar-title {
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: #1e293b;
+}
+
+.sidebar-content {
+    padding: 1.5rem;
+    overflow-y: auto;
+    flex: 1;
+}
+
+/* Form Controls */
+.form-group {
+    margin-bottom: 1.5rem;
+}
+
+.form-label {
+    display: block;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #475569;
+    margin-bottom: 0.5rem;
+}
+
+.form-radio,
+.form-checkbox {
+    display: flex;
+    align-items: center;
+    margin-bottom: 0.6rem;
+    cursor: pointer;
+}
+
+.form-radio input,
+.form-checkbox input {
+    margin-right: 0.6rem;
+    cursor: pointer;
+}
+
+.form-select {
+    width: 100%;
+    padding: 0.7rem;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    background: #ffffff;
+    font-size: 0.95rem;
+    color: #1e293b;
+    transition: border-color 0.2s;
+}
+
+.form-select:focus {
+    outline: none;
+    border-color: #2563eb;
+}
+
+/* Primary Button */
+.btn-primary {
+    width: 100%;
+    padding: 1rem;
+    background: #2563eb;
+    color: #f8fafc;
+    border: none;
+    border-radius: 10px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.25s ease;
+    margin-top: 1rem;
+}
+
+.btn-primary:hover {
+    background: #1d4ed8;
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(37, 99, 235, 0.3);
+}
+
+.btn-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Secondary Button */
+.btn-secondary {
+    padding: 0.7rem 1.2rem;
+    background: #e2e8f0;
+    color: #1e293b;
+    border: none;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-secondary:hover {
+    background: #cbd5e1;
+}
+
+/* Toggle Switch */
+.toggle-switch {
+    position: relative;
+    display: inline-block;
+    width: 50px;
+    height: 24px;
+}
+
+.toggle-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.toggle-slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #cbd5e1;
+    transition: 0.3s;
+    border-radius: 24px;
+}
+
+.toggle-slider:before {
+    position: absolute;
+    content: '';
+    height: 18px;
+    width: 18px;
+    left: 3px;
+    bottom: 3px;
+    background-color: white;
+    transition: 0.3s;
+    border-radius: 50%;
+}
+
+.toggle-switch input:checked + .toggle-slider {
+    background-color: #2563eb;
+}
+
+.toggle-switch input:checked + .toggle-slider:before {
+    transform: translateX(26px);
+}
+
+/* ============================================
+   Animations
+   ============================================ */
+@keyframes slideUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes pulse {
+    0%,
+    100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.5;
+    }
+}
+
+.pulse {
+    animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+/* ============================================
+   Responsive Design
+   ============================================ */
+@media (max-width: 768px) {
+    .navbar {
+        padding: 1rem;
+    }
+
+    .nav-brand {
+        font-size: 1.2rem;
+    }
+
+    .intro-message {
+        padding: 2rem;
+        margin: 1rem;
+    }
+
+    .chat-container {
+        padding: 100px 1rem 1rem;
+    }
+
+    .chat-bubble {
+        max-width: 85%;
+    }
+
+    .sidebar-stack-1,
+    .sidebar-stack-2,
+    .sidebar-stack-3 {
+        width: 100%;
+    }
+
+    .sidebar-layout {
+        flex-direction: column;
+    }
+}
+
+/* ============================================
+   Help Tooltip System (초보자용 설명)
+   ============================================ */
+.help-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+    color: white;
+    border-radius: 50%;
+    font-size: 0.8rem;
+    font-weight: bold;
+    cursor: help;
+    margin-left: 0.5rem;
+    transition: all 0.2s ease;
+    position: relative;
+    flex-shrink: 0;
+}
+
+.help-icon:hover {
+    transform: scale(1.1);
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+}
+
+/* Tooltip Container */
+.tooltip-wrapper {
+    position: relative;
+    display: inline-block;
+    z-index: 1;
+}
+
+/* Portal Tooltip (rendered in body) */
+.tooltip-portal {
+    pointer-events: none;
+    animation: tooltipSimpleFadeIn 0.2s ease;
+}
+
+@keyframes tooltipSimpleFadeIn {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+.tooltip-content {
+    background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+    color: #ffffff;
+    padding: 1.25rem 1.5rem;
+    border-radius: 12px;
+    font-size: 0.9rem;
+    line-height: 1.8;
+    white-space: pre-line;
+    width: 450px;
+    max-width: 90vw;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+    text-align: left;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    position: relative;
+}
+
+.tooltip-content::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 20px;
+    border: 8px solid transparent;
+    border-top-color: #1e293b;
+}
+
+/* 아래쪽으로 표시되는 툴팁 */
+.tooltip-content.tooltip-below::after {
+    top: auto;
+    bottom: 100%;
+    border-top-color: transparent;
+    border-bottom-color: #1e293b;
+}
+
+/* 우측으로 표시되는 툴팁 (물음표 옆) */
+.tooltip-content-right {
+    background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+    color: #ffffff;
+    padding: 1.25rem 1.5rem;
+    border-radius: 12px;
+    font-size: 0.9rem;
+    line-height: 1.8;
+    white-space: pre-line;
+    width: 450px;
+    max-width: 90vw;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+    text-align: left;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    position: relative;
+}
+
+.tooltip-content-right::before {
+    content: '';
+    position: absolute;
+    top: 12px;
+    left: -8px;
+    border: 8px solid transparent;
+    border-right-color: #1e293b;
+}
+
+.tooltip-content strong {
+    color: #a5b4fc;
+    display: block;
+    margin-bottom: 0.5rem;
+    font-size: 0.95rem;
+    font-weight: 700;
+}
+
+.tooltip-content p {
+    margin: 0;
+    margin-bottom: 0.75rem;
+}
+
+.tooltip-content p:last-child {
+    margin-bottom: 0;
+}
+
+/* Section Header with Help */
+.section-header-with-help {
+    display: flex;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.section-header-with-help h3 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+    color: #1e293b;
+}
+
+.section-header-with-help .form-label {
+    white-space: nowrap;
+}
+
+/* Option with Help */
+.option-with-help {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.option-label {
+    display: flex;
+    align-items: center;
+    flex: 1;
+}

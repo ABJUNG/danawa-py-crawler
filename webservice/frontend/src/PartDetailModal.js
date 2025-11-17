@@ -7,13 +7,6 @@ import './PartDetailModal.css'; // (다음 단계에서 이 CSS 파일을 만듭
  * @param {object} filterLabels - App.js의 FILTER_LABELS 객체
  */
 
-const FILTER_LABELS = {
-  manufacturer: '제조사',
-  codename: '코드네임',
-  // ... (보내주신 전체 객체 내용) ...
-  pcie_16pin: 'PCIe 16핀(12+4)',
-};
-
 const parseSpecs = (specsJson, filterLabels) => {
     if (!specsJson) {
         return []; // 스펙 정보가 없음

@@ -164,4 +164,105 @@ public class PartService {
             return predicate;
         };
     }
+
+    /**
+     * 특정 카테고리의 고유한 모델명 목록을 반환합니다.
+     * 예: GPU 카테고리의 경우 "RTX 4060", "RTX 4070" 등
+     */
+    public Set<String> getUniqueModelsForCategory(String category) {
+        List<PartSpec> specs = partSpecRepository.findAllWithPartByCategory(category);
+        Set<String> models = new HashSet<>();
+        
+        for (PartSpec spec : specs) {
+            try {
+                if (spec.getSpecs() != null) {
+                    JSONObject specsJson = new JSONObject(spec.getSpecs());
+                    
+                    // 카테고리별로 모델명을 추출하는 키가 다를 수 있음
+                    String modelKey = switch (category) {
+                        case "CPU" -> "codename";
+                        case "그래픽카드" -> "nvidia_chipset"; // 또는 amd_chipset
+                        case "메인보드" -> "chipset";
+                        case "RAM" -> "product_class";
+                        default -> "model"; // 기본값
+                    };
+                    
+                    if (specsJson.has(modelKey)) {
+                        String model = specsJson.getString(modelKey);
+                        if (model != null && !model.isBlank()) {
+                            models.add(model);
+                        }
+                    }
+                    
+                    // GPU의 경우 AMD 칩셋도 확인
+                    if (category.equals("그래픽카드") && specsJson.has("amd_chipset")) {
+                        String amdModel = specsJson.getString("amd_chipset");
+                        if (amdModel != null && !amdModel.isBlank()) {
+                            models.add(amdModel);
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                // JSON 파싱 오류 무시
+            }
+        }
+        
+        return models;
+    }
+
+    /**
+     * 특정 카테고리의 고유한 브랜드(제조사) 목록을 반환합니다.
+     */
+    public Set<String> getUniqueBrandsForCategory(String category) {
+        List<PartSpec> specs = partSpecRepository.findAllWithPartByCategory(category);
+        Set<String> brands = new HashSet<>();
+        
+        for (PartSpec spec : specs) {
+            try {
+                if (spec.getSpecs() != null) {
+                    JSONObject specsJson = new JSONObject(spec.getSpecs());
+                    
+                    if (specsJson.has("manufacturer")) {
+                        String brand = specsJson.getString("manufacturer");
+                        if (brand != null && !brand.isBlank()) {
+                            brands.add(brand);
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                // JSON 파싱 오류 무시
+            }
+        }
+        
+        return brands;
+    }
+
+    /**
+     * 특정 카테고리의 가격 범위를 반환합니다.
+     * min: 최소 가격, max: 최대 가격, avg: 평균 가격
+     */
+    public Map<String, Integer> getPriceRangeForCategory(String category) {
+        List<Part> parts = partRepository.findAllByCategory(category);
+        
+        if (parts.isEmpty()) {
+            return Map.of("min", 0, "max", 0, "avg", 0);
+        }
+        
+        int min = parts.stream()
+                .mapToInt(Part::getPrice)
+                .min()
+                .orElse(0);
+        
+        int max = parts.stream()
+                .mapToInt(Part::getPrice)
+                .max()
+                .orElse(0);
+        
+        int avg = (int) parts.stream()
+                .mapToInt(Part::getPrice)
+                .average()
+                .orElse(0);
+        
+        return Map.of("min", min, "max", max, "avg", avg);
+    }
 }

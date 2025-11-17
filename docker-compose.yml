@@ -11,7 +11,15 @@ services:
       - "3307:3306" # 호스트와 컨테이너 포트 연결
     volumes:
       - db_data:/var/lib/mysql # 데이터 유지를 위한 볼륨 마운트
+    networks:
+      - danawa-net
     command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci --default-authentication-plugin=mysql_native_password
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p1234"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   # Java Spring Boot 백엔드 서비스
   backend:
@@ -20,11 +28,14 @@ services:
       dockerfile: Dockerfile
     container_name: danawa-backend
     depends_on:
-      - db # DB 서비스가 먼저 실행되도록 설정
+      db:
+        condition: service_healthy # DB가 완전히 준비될 때까지 대기
     env_file: # 👈 이 부분을 추가
     - ./.env  # 👈 .env 파일을 읽어 GOOGLE_API_KEY를 주입
     ports:
       - "8080:8080"
+    networks:
+      - danawa-net
     environment:
       # application.properties의 DB 설정을 Docker 환경에 맞게 오버라이드
       SPRING_DATASOURCE_URL: jdbc:mysql://db:3306/danawa?useSSL=false&serverTimezone=Asia/Seoul&allowPublicKeyRetrieval=true
@@ -41,49 +52,74 @@ services:
     container_name: danawa-frontend
     ports:
       - "3000:3000"
+    networks:
+      - danawa-net
     environment:
       - NODE_ENV=development # 개발 모드 설정
       - CHOKIDAR_USEPOLLING=true # 파일 변경 감지 방식 변경 (Docker 환경)
       - REACT_APP_API_URL=http://localhost:8080 # 백엔드 API URL 설정 (브라우저에서 접근 가능한 호스트 포트 사용)
+    volumes:
+      - ./webservice/frontend/src:/app/src # 소스 코드 실시간 동기화
+      - ./webservice/frontend/public:/app/public # public 폴더 실시간 동기화
     # Dockerfile의 CMD ["npm", "start"]를 사용하여 애플리케이션 실행
 
-  # Python 크롤러 서비스 (필요 시 실행)
+  # Python 크롤러 서비스 (수동 실행 전용)
+  # 사용법: docker-compose run -it crawler python crawler.py
+  # 또는: docker-compose run crawler python crawler.py --reviews
   crawler:
     build:
       context: .
       dockerfile: Dockerfile.crawler
-    env_file: # 👈 이 부분을 추가
-      - ./.env  # 👈 .env 파일의 모든 변수를 이 컨테이너로 주입
+    env_file:
+      - ./.env
     depends_on:
-      - db
+      db:
+        condition: service_healthy
+    networks:
+      - danawa-net
     volumes:
       - .:/app # 크롤러 스크립트 마운트
     working_dir: /app
     environment:
-      DB_HOST: db # docker-compose 네트워크 내의 DB 서비스 이름 사용
+      DB_HOST: db
       DB_PORT: 3306
       DB_USER: root
       DB_PASSWORD: 1234
       DB_NAME: danawa
-      # TZ: Asia/Seoul # 필요시 시간대 설정
-    # docker-compose up 시 바로 실행되지 않고, 필요할 때 수동 실행하도록 entrypoint 설정
-    entrypoint: ["python", "crawler.py"]
-    # tty: true # 필요 시 컨테이너 유지
+    # entrypoint 제거: 자동 실행 방지, 수동 실행만 가능
+    stdin_open: true # 표준 입력 활성화 (대화형 입력용)
+    tty: true # TTY 할당 (대화형 터미널용)
+    profiles:
+      - manual # 수동 실행 전용 프로필
 
+  # 요약 서비스 (수동 실행 전용)
+  # 사용법: docker-compose run summarizer python summarize_reviews.py
   summarizer:
-      build:
-        context: .
-        dockerfile: Dockerfile.summarizer # 1. 이전 단계에서 생성한 Dockerfile.summarizer 사용
-      container_name: danawa-summarizer
-      env_file: # .env 파일에서 GOOGLE_API_KEY를 읽어옴
-        - ./.env
-      depends_on:
-        - db
-      networks: # 'db' 서비스에 접근하기 위해 동일 네트워크 사용
-        - danawa-net
-      # summarize_reviews.py에 DB_HOST='db' 등이 하드코딩되어 있으므로
-      # 별도 DB 환경 변수는 필요 없음. GOOGLE_API_KEY만 .env로 주입.
-      entrypoint: ["python", "summarize_reviews.py"] # 2. 수동 실행용 entrypoint
+    build:
+      context: .
+      dockerfile: Dockerfile.summarizer
+    env_file:
+      - ./.env
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - danawa-net
+    environment:
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_USER: root
+      DB_PASSWORD: 1234
+      DB_NAME: danawa
+    # entrypoint 제거: 자동 실행 방지, 수동 실행만 가능
+    # container_name 제거: 수동 실행 시 여러 인스턴스 실행 가능
+    profiles:
+      - manual # 수동 실행 전용 프로필
+
+networks:
+  danawa-net:
+    driver: bridge
+
 volumes:
   db_data: # DB 데이터 저장 볼륨
   maven_repo: # Maven 의존성 저장 볼륨
