@@ -26,6 +26,22 @@ HEADLESS_MODE = True
 # 각 동작 사이의 지연 시간 (ms). 봇 탐지를 피하고 안정성을 높임 (50~100 추천)
 SLOW_MOTION = 20
 
+# ===== [속도 최적화 설정] =====
+# 동시 처리할 상품 개수 (기본: 2, 권장 범위: 1~5)
+# - 벤치마크/리뷰 수집 시 2개 권장 (안정성 우선)
+# - 기본 정보만 수집 시 3~5개 가능
+# - 값이 클수록 빠르지만 DB 연결/락 타임아웃 발생 가능
+# - 환경 변수 MAX_CONCURRENT_ITEMS로 오버라이드 가능
+MAX_CONCURRENT_ITEMS = int(os.getenv('MAX_CONCURRENT_ITEMS', '2'))
+
+# 페이지 로딩 최대 대기 시간 (ms, 기본: 30000 = 30초)
+# - 빠른 크롤링을 원하면 15000~20000으로 줄이기
+PAGE_LOAD_TIMEOUT = int(os.getenv('PAGE_LOAD_TIMEOUT', '30000'))
+
+# 개별 요소 대기 시간 (ms, 기본: 5000 = 5초)
+# - 빠른 크롤링을 원하면 2000~3000으로 줄이기
+ELEMENT_TIMEOUT = int(os.getenv('ELEMENT_TIMEOUT', '5000'))
+
 # --- 2. DB 설정 (로컬 모드) ---
 # 환경 변수에서 읽거나, 기본값 사용 (docker-compose.yml 참고)
 DB_HOST = os.environ.get("DB_HOST", "localhost")
@@ -36,15 +52,15 @@ DB_NAME = os.environ.get("DB_NAME", "danawa")
 
 # --- 3. 크롤링 카테고리 ---
 CATEGORIES = {
-        # 'CPU': 'cpu', 
-        # '쿨러': 'cooler&attribute=687-4015-OR%2C687-4017-OR',
-        # '메인보드': 'mainboard',
+         'CPU': 'cpu', 
+         '쿨러': 'cooler&attribute=687-4015-OR%2C687-4017-OR',
+         '메인보드': 'mainboard',
          'RAM': 'RAM',
-        # '그래픽카드': 'vga',
-        # 'SSD': 'ssd',
+         '그래픽카드': 'vga',
+         'SSD': 'ssd',
          'HDD': 'hdd', 
-        # '케이스': 'pc case',
-        # '파워': 'power'
+         '케이스': 'pc case',
+         '파워': 'power'
 }
 
 # --- 5. SQLAlchemy 엔진 생성 (로컬 MySQL) ---
@@ -59,12 +75,19 @@ try:
     # SQLAlchemy 엔진 생성
     engine = create_engine(
         db_url,
-        pool_pre_ping=True,  # 연결 상태 확인
-        pool_recycle=3600,   # 1시간마다 연결 재생성
-        echo=False,  # SQL 로그 출력 여부
+        pool_pre_ping=True,     # 연결 상태 확인 (중요: 끊긴 연결 감지)
+        pool_recycle=1800,      # 30분마다 연결 재생성 (MySQL wait_timeout보다 짧게)
+        pool_size=15,           # 연결 풀 크기 증가 (동시 처리 개수보다 크게)
+        max_overflow=30,        # 추가 연결 허용 증가
+        pool_timeout=60,        # 연결 풀 타임아웃 증가 (60초)
+        echo=False,             # SQL 로그 출력 여부
         connect_args={
             'charset': 'utf8mb4',
-            'init_command': "SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci"
+            'init_command': "SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci",
+            'connect_timeout': 30,     # 연결 타임아웃 증가 (30초)
+            'read_timeout': 120,       # 읽기 타임아웃 증가 (120초)
+            'write_timeout': 120,      # 쓰기 타임아웃 증가 (120초)
+            'autocommit': False,       # 명시적 트랜잭션 사용
         }
     )
 
@@ -598,14 +621,26 @@ def parse_motherboard_specs(name, spec_string):
         
         if '소켓' in part and 'CPU 소켓' in part: 
             specs['socket'] = part_no_keyword
+            specs['cpu_socket'] = part_no_keyword  # 호환성을 위해 cpu_socket에도 저장
         elif re.search(r'^[A-Z]\d{3}[A-Z]*$', part): 
             specs['chipset'] = part
         elif 'ATX' in part or 'ITX' in part: 
             specs['form_factor'] = part
+            specs['board_form_factor'] = part  # 호환성을 위해 board_form_factor에도 저장
         elif 'DDR' in part: 
             specs['memory_spec'] = part
+            # DDR4, DDR5 등 메모리 타입 추출하여 memory_type에도 저장
+            if 'DDR5' in part:
+                specs['memory_type'] = 'DDR5'
+            elif 'DDR4' in part:
+                specs['memory_type'] = 'DDR4'
+            elif 'DDR3' in part:
+                specs['memory_type'] = 'DDR3'
         elif 'VGA 연결' in part or 'PCIe' in part and 'vga_connection' not in specs: 
             specs['vga_connection'] = part
+            # VGA 인터페이스 정보도 별도로 저장 (호환성 체크용)
+            if 'VGA 연결' in part:
+                specs['vga_interface'] = part
         elif '메모리 슬롯' in part: 
             specs['memory_slots'] = part
         elif 'M.2:' in part: 
@@ -618,20 +653,32 @@ def parse_motherboard_specs(name, spec_string):
             specs['wireless_lan'] = 'Y' # 존재 여부
         elif '블루투스' in part:
             specs['bluetooth'] = 'Y' # 존재 여부
+        elif 'MHz' in part and 'memory_clock' not in specs:
+            # 메모리 클럭 추출 (예: "8000MHz", "6000MHz(PC5-48000)")
+            specs['memory_clock'] = part
 
     # --- 2. 정규식을 이용한 상세 스펙 추출 (전체 텍스트 기반) ---
     
     # 전원부
     if (m := re.search(r'전원부:\s*([\d\+\s]+페이즈)', full_text)):
         specs['power_phases'] = m.group(1)
+        specs['power_phase'] = m.group(1)  # 호환성을 위해 power_phase에도 저장
         
     # 메모리
     if (m := re.search(r'(\d+)MHz\s*\((PC\d-[\d]+)\)', full_text)):
         specs['memory_clock'] = m.group(1) + 'MHz'
+    elif 'memory_clock' in specs and 'MHz' not in specs['memory_clock']:
+        # 이미 memory_clock이 설정되었지만 MHz가 없는 경우 (예: "8000")
+        pass  # 유지
     if (m := re.search(r'메모리 용량:\s*(최대 [\d,]+GB)', full_text)):
         specs['memory_capacity_max'] = m.group(1)
-    if 'XMP' in full_text: specs['memory_profile_xmp'] = 'Y'
-    if 'EXPO' in full_text: specs['memory_profile_expo'] = 'Y'
+        specs['max_memory_capacity'] = m.group(1)  # 호환성을 위해 max_memory_capacity에도 저장
+    if 'XMP' in full_text: 
+        specs['memory_profile_xmp'] = 'Y'
+        specs['xmp'] = 'Y'
+    if 'EXPO' in full_text: 
+        specs['memory_profile_expo'] = 'Y'
+        specs['expo'] = 'Y'
 
     # 확장슬롯
     if (m := re.search(r'PCIe버전:\s*([\w\d\.,\s]+)', full_text)):
@@ -689,6 +736,90 @@ def parse_motherboard_specs(name, spec_string):
     if 'UEFI' in full_text: specs['feature_uefi'] = 'Y'
     if (m := re.search(r'(\d{2}년 \d{1,2}월부로.*)', full_text)):
         specs['product_note'] = m.group(1)
+
+    # --- 3. 소켓 및 메모리 타입 추론 (정보가 없는 경우 칩셋이나 제품명에서 추론) ---
+    chipset = specs.get('chipset', '')
+    product_name_upper = name.upper() if name else ''
+    
+    # 3-1. 소켓 추론
+    if 'socket' not in specs or not specs['socket']:
+        # AMD 소켓 추론 (칩셋 기반)
+        if chipset:
+            if any(chip in chipset for chip in ['B850', 'X870', 'A620', 'B650', 'X670']):
+                specs['socket'] = 'AM5'
+                specs['cpu_socket'] = 'AM5'
+            elif any(chip in chipset for chip in ['B550', 'X570', 'A520']):
+                specs['socket'] = 'AM4'
+                specs['cpu_socket'] = 'AM4'
+            # Intel 소켓 추론 (칩셋 기반)
+            elif any(chip in chipset for chip in ['Z890', 'B860', 'H810']):
+                specs['socket'] = 'LGA1851'
+                specs['cpu_socket'] = 'LGA1851'
+            elif any(chip in chipset for chip in ['Z790', 'B760', 'H770', 'B660']):
+                specs['socket'] = 'LGA1700'
+                specs['cpu_socket'] = 'LGA1700'
+            elif any(chip in chipset for chip in ['Z690', 'H670']):
+                specs['socket'] = 'LGA1700'
+                specs['cpu_socket'] = 'LGA1700'
+        
+        # 칩셋에서 찾지 못한 경우 제품명에서 추론
+        if ('socket' not in specs or not specs['socket']) and product_name_upper:
+            # AMD 제품명 기반 추론
+            if any(chip in product_name_upper for chip in ['B850', 'X870', 'B650', 'X670', 'A620']):
+                specs['socket'] = 'AM5'
+                specs['cpu_socket'] = 'AM5'
+            elif any(chip in product_name_upper for chip in ['B550', 'X570', 'A520']):
+                specs['socket'] = 'AM4'
+                specs['cpu_socket'] = 'AM4'
+            # Intel 제품명 기반 추론
+            elif any(chip in product_name_upper for chip in ['Z890', 'B860', 'H810']):
+                specs['socket'] = 'LGA1851'
+                specs['cpu_socket'] = 'LGA1851'
+            elif any(chip in product_name_upper for chip in ['Z790', 'B760', 'H770']):
+                specs['socket'] = 'LGA1700'
+                specs['cpu_socket'] = 'LGA1700'
+            elif any(chip in product_name_upper for chip in ['Z690', 'B660', 'H670']):
+                specs['socket'] = 'LGA1700'
+                specs['cpu_socket'] = 'LGA1700'
+    
+    # 3-2. 메모리 타입 추론 (메모리 타입 정보가 없는 경우)
+    if 'memory_type' not in specs or not specs['memory_type']:
+        # 칩셋 기반 메모리 타입 추론 (최신 칩셋들은 DDR5 전용)
+        if chipset:
+            # AM5 칩셋은 DDR5 전용
+            if any(chip in chipset for chip in ['B850', 'X870', 'B650', 'X670', 'A620']):
+                specs['memory_type'] = 'DDR5'
+            # AM4 칩셋은 DDR4 전용
+            elif any(chip in chipset for chip in ['B550', 'X570', 'A520', 'B450', 'X470']):
+                specs['memory_type'] = 'DDR4'
+            # 최신 Intel 칩셋 (13세대 이후)는 주로 DDR5 (일부 DDR4 지원)
+            elif any(chip in chipset for chip in ['Z890', 'B860', 'H810']):
+                specs['memory_type'] = 'DDR5'
+            # 12-13세대 Intel 칩셋은 DDR4/DDR5 혼용 (정확한 판단 어려움)
+            # Z790, B760 등은 제품에 따라 DDR4 또는 DDR5 지원
+            # 이 경우 memory_clock으로 추론 시도
+            elif any(chip in chipset for chip in ['Z790', 'B760', 'H770']):
+                memory_clock_str = str(specs.get('memory_clock', ''))
+                if memory_clock_str:
+                    clock_num = int(''.join(filter(str.isdigit, memory_clock_str))) if any(c.isdigit() for c in memory_clock_str) else 0
+                    # DDR5는 일반적으로 4800MHz 이상
+                    if clock_num >= 4800:
+                        specs['memory_type'] = 'DDR5'
+                    # DDR4는 일반적으로 2133~3200MHz
+                    elif 2000 <= clock_num < 4800:
+                        specs['memory_type'] = 'DDR4'
+        
+        # 칩셋에서 찾지 못한 경우 제품명에서 추론
+        if ('memory_type' not in specs or not specs['memory_type']) and product_name_upper:
+            # AM5 제품명은 DDR5 전용
+            if any(chip in product_name_upper for chip in ['B850', 'X870', 'B650', 'X670', 'A620']):
+                specs['memory_type'] = 'DDR5'
+            # AM4 제품명은 DDR4 전용
+            elif any(chip in product_name_upper for chip in ['B550', 'X570', 'A520', 'B450']):
+                specs['memory_type'] = 'DDR4'
+            # Intel 최신 칩셋
+            elif any(chip in product_name_upper for chip in ['Z890', 'B860', 'H810']):
+                specs['memory_type'] = 'DDR5'
 
     return specs
 
@@ -1439,7 +1570,12 @@ async def scrape_cinebench_r23(browser, cpu_name, conn, part_id, category_name='
         new_page = await browser.new_page(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
         )
-        await new_page.goto(url, wait_until='networkidle', timeout=15000)
+        # 타임아웃 증가 (15초 -> 45초)
+        try:
+            await new_page.goto(url, wait_until='networkidle', timeout=45000)
+        except Exception as e:
+            print(f"        -> (경고) networkidle 실패, load로 재시도: {type(e).__name__}")
+            await new_page.goto(url, wait_until='load', timeout=30000)
         await new_page.wait_for_timeout(3000)  # 페이지 로딩 대기 증가
         
         # 검색 입력 필드 찾기 및 입력 (여러 시도)
@@ -1663,7 +1799,12 @@ async def scrape_geekbench_v6(browser, cpu_name, conn, part_id):
         new_page = await browser.new_page(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
         )
-        await new_page.goto(search_url, wait_until='networkidle', timeout=15000)
+        # 타임아웃 증가 (15초 -> 45초)
+        try:
+            await new_page.goto(search_url, wait_until='networkidle', timeout=45000)
+        except Exception as e:
+            print(f"        -> (경고) networkidle 실패, load로 재시도: {type(e).__name__}")
+            await new_page.goto(search_url, wait_until='load', timeout=30000)
         await new_page.wait_for_timeout(3000)
         
         html = await new_page.content() # page. -> new_page.
@@ -3102,12 +3243,15 @@ async def scrape_category(browser, page, engine, category_name, query, collect_r
             
             # 각 아이템은 독립적인 DB 연결 사용 (트랜잭션 충돌 방지)
             # 재시도 로직 추가 (DB Lock Timeout 대응)
-            max_retries = 3
+            max_retries = 5  # 재시도 횟수 증가 (3 -> 5)
             retry_count = 0
             
             while retry_count < max_retries:
                 try:
+                    # 트랜잭션 격리 수준 설정 (READ COMMITTED로 변경하여 락 대기 시간 감소)
                     with engine.connect() as conn:
+                        # 트랜잭션 격리 수준 설정 (선택사항, 필요시 주석 해제)
+                        # conn.execute(text("SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED"))
                         with conn.begin(): # SQLAlchemy Connection에서 트랜잭션 시작
                             # 기존 상품 확인 (가격 변동 체크) - link로 확인
                             find_existing_sql = text("SELECT id, price FROM parts WHERE link = :link")
@@ -3188,61 +3332,105 @@ async def scrape_category(browser, page, engine, category_name, query, collect_r
                                     if needs_update:
                                         print(f"         -> [{capacity or '기본'}] parts 테이블 연결 완료 (part_id: {part_id} -> spec_id: {spec_id})")
 
-                            if part_id:
-                                # 벤치마크 수집 (CPU) - --benchmarks 플래그 선택 시에만 수집
-                                if collect_benchmarks and category_name == 'CPU':
-                                    print(f"         -> [{capacity or '기본'}] CPU 벤치마크 수집 중... (--benchmarks 플래그 활성화)")
-                                    await scrape_cinebench_r23(browser, product_name, conn, part_id, category_name)
-                                    await asyncio.sleep(0.5)
-                                    await scrape_geekbench_v6(browser, product_name, conn, part_id)
-                                    await asyncio.sleep(0.5)
-                                    scrape_blender_median(None, product_name, conn, part_id)
-                                    await asyncio.sleep(0.5)
-                                elif category_name == 'CPU':
-                                    print(f"         -> [{capacity or '기본'}] CPU 벤치마크 수집 건너뜀 (--benchmarks 플래그 미설정)")
-
-                                # GPU 벤치마크 수집 - --benchmarks 플래그 선택 시에만 수집
-                                if collect_benchmarks and category_name == '그래픽카드':
-                                    common_label, token = _normalize_gpu_model(product_name)
-                                    print(f"         -> [{capacity or '기본'}] GPU 벤치마크 수집 중... ({common_label}, --benchmarks 플래그 활성화)")
-                                    scrape_blender_gpu(page, common_label, conn, part_id)
-                                    await asyncio.sleep(2)
-                                    await scrape_3dmark_generic(browser, common_label, conn, part_id, 'Fire Strike', 'https://www.3dmark.com/search#advanced/fs')
-                                    await asyncio.sleep(2)
-                                    await scrape_3dmark_generic(browser, common_label, conn, part_id, 'Time Spy', 'https://www.3dmark.com/search#advanced/spy')
-                                    await asyncio.sleep(2)
-                                    await scrape_3dmark_generic(browser, common_label, conn, part_id, 'Port Royal', 'https://www.3dmark.com/search#advanced/pr')
-                                    await asyncio.sleep(2)
-                                elif category_name == '그래픽카드':
-                                    print(f"         -> [{capacity or '기본'}] GPU 벤치마크 수집 건너뜀 (--benchmarks 플래그 미설정)")
-
-                                # 퀘이사존 리뷰 수집 - --reviews 플래그 선택 시에만 수집
-                                if collect_reviews and part_id:
-                                    print(f"             -> [{capacity or '기본'}] 퀘이사존 리뷰 수집 중... (--reviews 플래그 활성화)")
-                                    await scrape_quasarzone_reviews(browser, conn, sql_review, part_id, product_name, category_name, detailed_specs_with_capacity)
-                                elif part_id:
-                                    print(f"             -> [{capacity or '기본'}] 퀘이사존 리뷰 수집 건너뜀 (--reviews 플래그 미설정)")
-
-                    # 트랜잭션은 with 블록 종료 시 자동 커밋됨
+                    # 트랜잭션은 with 블록 종료 시 자동 커밋됨 (벤치마크/리뷰 수집 전에 커밋)
                     print(f"     [처리 완료] {product_name} (용량: {capacity or '기본'}, 가격: {price:,}원)")
+                    
+                    # === 벤치마크/리뷰 수집은 별도 트랜잭션으로 처리 (DB 락 방지) ===
+                    if part_id:
+                        # 벤치마크 수집 (CPU) - --benchmarks 플래그 선택 시에만 수집
+                        if collect_benchmarks and category_name == 'CPU':
+                            print(f"         -> [{capacity or '기본'}] CPU 벤치마크 수집 중... (--benchmarks 플래그 활성화)")
+                            # 별도 커넥션 사용
+                            with engine.connect() as bench_conn:
+                                with bench_conn.begin():
+                                    await scrape_cinebench_r23(browser, product_name, bench_conn, part_id, category_name)
+                                    await asyncio.sleep(0.5)
+                                    await scrape_geekbench_v6(browser, product_name, bench_conn, part_id)
+                                    await asyncio.sleep(0.5)
+                                    scrape_blender_median(None, product_name, bench_conn, part_id)
+                                    await asyncio.sleep(0.5)
+                        elif category_name == 'CPU':
+                            print(f"         -> [{capacity or '기본'}] CPU 벤치마크 수집 건너뜀 (--benchmarks 플래그 미설정)")
+
+                        # GPU 벤치마크 수집 - --benchmarks 플래그 선택 시에만 수집
+                        if collect_benchmarks and category_name == '그래픽카드':
+                            common_label, token = _normalize_gpu_model(product_name)
+                            print(f"         -> [{capacity or '기본'}] GPU 벤치마크 수집 중... ({common_label}, --benchmarks 플래그 활성화)")
+                            # 별도 커넥션 사용
+                            with engine.connect() as bench_conn:
+                                with bench_conn.begin():
+                                    scrape_blender_gpu(page, common_label, bench_conn, part_id)
+                                    await asyncio.sleep(2)
+                                    await scrape_3dmark_generic(browser, common_label, bench_conn, part_id, 'Fire Strike', 'https://www.3dmark.com/search#advanced/fs')
+                                    await asyncio.sleep(2)
+                                    await scrape_3dmark_generic(browser, common_label, bench_conn, part_id, 'Time Spy', 'https://www.3dmark.com/search#advanced/spy')
+                                    await asyncio.sleep(2)
+                                    await scrape_3dmark_generic(browser, common_label, bench_conn, part_id, 'Port Royal', 'https://www.3dmark.com/search#advanced/pr')
+                                    await asyncio.sleep(2)
+                        elif category_name == '그래픽카드':
+                            print(f"         -> [{capacity or '기본'}] GPU 벤치마크 수집 건너뜀 (--benchmarks 플래그 미설정)")
+
+                        # 퀘이사존 리뷰 수집 - --reviews 플래그 선택 시에만 수집
+                        if collect_reviews:
+                            print(f"             -> [{capacity or '기본'}] 퀘이사존 리뷰 수집 중... (--reviews 플래그 활성화)")
+                            # 별도 커넥션 사용
+                            with engine.connect() as review_conn:
+                                with review_conn.begin():
+                                    await scrape_quasarzone_reviews(browser, review_conn, sql_review, part_id, product_name, category_name, detailed_specs_with_capacity)
+                        else:
+                            print(f"             -> [{capacity or '기본'}] 퀘이사존 리뷰 수집 건너뜀 (--reviews 플래그 미설정)")
+                    
                     break  # 성공 시 재시도 루프 탈출
                     
                 except Exception as e:
-                    # DB Lock Timeout 처리
-                    error_msg = str(e)
-                    if "1205" in error_msg or "Lock wait timeout" in error_msg:
+                    # DB 연결 및 타임아웃 오류 처리
+                    error_msg = str(e).lower()
+                    
+                    # 재시도 가능한 오류 패턴
+                    retryable_errors = [
+                        "1205",                    # Lock wait timeout
+                        "2013",                    # Lost connection to MySQL server
+                        "2006",                    # MySQL server has gone away
+                        "lock wait timeout",       # 락 타임아웃
+                        "lost connection",         # 연결 끊김
+                        "timeout",                 # 일반 타임아웃
+                        "connection reset",        # 연결 리셋
+                        "broken pipe",             # 파이프 끊김
+                    ]
+                    
+                    is_retryable = any(pattern in error_msg for pattern in retryable_errors)
+                    
+                    if is_retryable:
                         retry_count += 1
                         if retry_count < max_retries:
-                            wait_time = retry_count * 0.5  # 0.5초, 1초, 1.5초 대기
-                            print(f"     [DB 락 타임아웃] {product_name} - {retry_count}/{max_retries}회 재시도 중... ({wait_time}초 대기)")
+                            # 지수 백오프: 2초, 4초, 8초, 16초, 32초 (최대 30초)
+                            wait_time = min(2 ** retry_count, 30)
+                            error_type = "연결 오류" if "connection" in error_msg or "2013" in error_msg or "2006" in error_msg else "DB 락 타임아웃"
+                            print(f"     [{error_type}] {product_name} - {retry_count}/{max_retries}회 재시도 중... ({wait_time}초 대기)")
+                            print(f"         상세: {str(e)[:100]}")
                             await asyncio.sleep(wait_time)
+                            
+                            # 연결 끊김 오류의 경우 연결 풀 정리 시도
+                            if "connection" in error_msg or "2013" in error_msg or "2006" in error_msg:
+                                try:
+                                    engine.dispose()  # 연결 풀 재생성
+                                    print(f"         -> 연결 풀 재생성 완료")
+                                    await asyncio.sleep(2)  # 추가 대기
+                                except:
+                                    pass
+                            
                             continue
                         else:
-                            print(f"     [처리 오류] {product_name} 저장 중 오류 발생 (최대 재시도 횟수 초과): {e}")
+                            print(f"     [처리 오류] {product_name} 저장 중 오류 발생 (최대 재시도 횟수 {max_retries}회 초과)")
+                            print(f"         상세: {e}")
+                            print(f"     [권장 조치]")
+                            print(f"       1. 동시 처리 개수 줄이기: MAX_CONCURRENT_ITEMS=3")
+                            print(f"       2. MySQL wait_timeout 증가: SET GLOBAL wait_timeout=28800")
+                            print(f"       3. MySQL max_connections 증가: SET GLOBAL max_connections=500")
                             break
                     else:
-                        # 다른 오류는 즉시 중단
-                        print(f"     [처리 오류] {product_name} 저장 중 오류 발생: {e}")
+                        # 재시도 불가능한 오류는 즉시 중단
+                        print(f"     [처리 오류] {product_name} 저장 중 오류 발생 (재시도 불가): {e}")
                         break
 
     for page_num in range(1, CRAWL_PAGES + 1): # CRAWL_PAGES 변수 사용하도록 수정
@@ -3289,8 +3477,8 @@ async def scrape_category(browser, page, engine, category_name, query, collect_r
             print(f"     -> {item_count}개 상품 아이템(locator) 감지. 파싱 시작...")
 
             # 3. BeautifulSoup 루프 대신 locator 루프 사용 - 제한된 병렬 처리
-            # ✅ Semaphore를 사용해 동시 실행 개수를 3개로 제한 (DB 락 타임아웃 방지)
-            semaphore = asyncio.Semaphore(3)
+            # ✅ Semaphore를 사용해 동시 실행 개수 제한 (DB 락 타임아웃 방지)
+            semaphore = asyncio.Semaphore(MAX_CONCURRENT_ITEMS)
             
             async def limited_process(item_loc):
                 async with semaphore:
@@ -3525,83 +3713,15 @@ async def scrape_quasarzone_reviews(browser, conn, sql_review, part_id, part_nam
             
             print(f"         -> 유효한 퀘이사존 게시물 링크: {len(valid_links)}개")
             
-            # 비교 리뷰 감지 함수
-            def is_comparison_review(title):
-                """제목이 비교 리뷰인지 확인"""
-                comparison_keywords = ['vs', 'VS', 'Vs', '비교', '대결', '대결전', '대 ', ' vs. ', ' 대 ']
-                for keyword in comparison_keywords:
-                    if keyword in title:
-                        return True
-                return False
-            
-            def has_multiple_products(title, search_keyword):
-                """제목에 여러 제품명이 있는지 확인"""
-                # 숫자 모델명이 여러 개 있는지 확인 (예: RTX 4070과 RTX 4060)
-                # CPU: 7800X3D, 7700X 같은 패턴
-                cpu_models = re.findall(r'\d{4,5}[XKF](?:3D)?', title, re.I)
-                if len(cpu_models) > 1:
-                    return True
-                
-                # GPU: RTX 4070, RTX 4060 같은 패턴
-                gpu_models = re.findall(r'(?:RTX|GTX|RX)\s*\d{3,4}', title, re.I)
-                if len(gpu_models) > 1:
-                    return True
-                
-                # 파워: 여러 용량이 언급되는지 (예: 650W, 750W)
-                power_wattages = re.findall(r'\d{3,4}W', title)
-                if len(power_wattages) > 1:
-                    return True
-                
-                # 쉼표로 구분된 여러 제품명 (예: "A, B, C 리뷰")
-                if title.count(',') >= 2:
-                    return True
-                
-                return False
-            
-            # 2. 유효한 링크를 순회하며 키워드 매칭
-            matched_links = []  # 매칭된 링크를 모두 수집
-            
+            # 2. 유효한 링크를 순회하며 키워드 매칭 (필터링 제거, 첫 번째 매칭 즉시 선택)
             for href, title in valid_links:
                 normalized_title = normalize_text(title)
                 
-                # 3. 링크의 텍스트(제목)에 키워드가 포함되어 있는지 확인합니다.
+                # 3. 링크의 텍스트(제목)에 키워드가 포함되어 있는지 확인
                 if normalized_keyword in normalized_title:
-                    # 비교 리뷰인지 확인
-                    if is_comparison_review(title):
-                        print(f"         -> [건너뜀] 비교 리뷰: '{title[:60]}'")
-                        continue
-                    
-                    # 여러 제품이 포함된 리뷰인지 확인
-                    if has_multiple_products(title, search_keyword):
-                        print(f"         -> [건너뜀] 다중 제품 리뷰: '{title[:60]}'")
-                        continue
-                    
-                    # 단독 리뷰로 판단
                     print(f"         -> 매칭된 제목 발견: '{title[:60]}'")
                     found_link = href
-                    break # 4. 일치하는 첫 번째 단독 리뷰 링크를 찾으면 중단
-            
-            # 디버깅: 매칭 실패 시 처음 몇 개 제목 출력
-            if not found_link and len(valid_links) > 0:
-                print(f"         -> [디버깅] 단독 리뷰를 찾지 못함. 검색 결과 샘플:")
-                for idx, (href, title) in enumerate(valid_links[:5], 1):
-                    normalized_title = normalize_text(title)
-                    is_comp = is_comparison_review(title)
-                    is_multi = has_multiple_products(title, search_keyword)
-                    has_keyword = normalized_keyword in normalized_title
-                    
-                    status = []
-                    if has_keyword:
-                        status.append("키워드포함")
-                    if is_comp:
-                        status.append("비교리뷰")
-                    if is_multi:
-                        status.append("다중제품")
-                    
-                    status_str = f"[{', '.join(status)}]" if status else "[키워드없음]"
-                    print(f"            {idx}. {status_str} '{title[:70]}'")
-                    if has_keyword:
-                        print(f"               정규화: '{normalized_title[:70]}'")
+                    break # 4. 일치하는 첫 번째 리뷰 링크를 찾으면 즉시 중단
             
         except Exception as e:
             print(f"      -> (경고) 링크 목록을 파싱하는 중 오류: {e}")

@@ -238,7 +238,8 @@ function SidebarStack1Expert({
         }
 
         // 3. GPU 길이 ↔ 케이스 지원 길이
-        if (gpuLength && caseGpuLength) {
+        // GPU 길이와 케이스 지원 길이가 모두 설정되어 있을 때만 체크
+        if (gpuLength && gpuLength > 0 && caseGpuLength && caseGpuLength > 0) {
             if (gpuLength <= caseGpuLength) {
                 results.success.push(`GPU 길이 (${gpuLength}mm) ↔ 케이스 지원 (${caseGpuLength}mm)`);
             } else {
@@ -248,7 +249,8 @@ function SidebarStack1Expert({
         }
 
         // 4. 쿨러 높이 ↔ 케이스 높이 제한
-        if (coolerHeight && caseCoolerHeight) {
+        // 쿨러 높이와 케이스 높이가 모두 설정되어 있을 때만 체크
+        if (coolerHeight && coolerHeight > 0 && caseCoolerHeight && caseCoolerHeight > 0) {
             if (coolerHeight <= caseCoolerHeight) {
                 results.success.push(`쿨러 높이 (${coolerHeight}mm) ↔ 케이스 지원 (${caseCoolerHeight}mm)`);
             } else {
@@ -364,12 +366,15 @@ function SidebarStack1Expert({
         }
 
         // 9. 🆕 CPU TDP ↔ 쿨러 TDP (냉각 능력)
-        if (cpuTdp[0] && coolerTdp[0]) {
-            if (coolerTdp[0] >= cpuTdp[1]) {
-                results.success.push(`쿨러 냉각 성능 충분 (CPU: ${cpuTdp[1]}W, 쿨러: ${coolerTdp[1]}W)`);
+        // CPU TDP와 쿨러 TDP가 모두 설정되어 있을 때만 체크
+        if (cpuTdp && cpuTdp.length >= 2 && cpuTdp[1] > 0 && coolerTdp && coolerTdp.length >= 2 && coolerTdp[1] > 0) {
+            const cpuMaxTdp = cpuTdp[1];
+            const coolerMaxTdp = coolerTdp[1];
+            if (coolerMaxTdp >= cpuMaxTdp) {
+                results.success.push(`쿨러 냉각 성능 충분 (CPU: ${cpuMaxTdp}W, 쿨러: ${coolerMaxTdp}W)`);
             } else {
-                results.errors.push(`쿨러 냉각 성능 부족 (CPU: ${cpuTdp[1]}W, 쿨러: ${coolerTdp[1]}W)`);
-                results.suggestions.push(`쿨러 TDP를 ${cpuTdp[1]}W 이상으로 조정하세요`);
+                results.errors.push(`쿨러 냉각 성능 부족 (CPU: ${cpuMaxTdp}W, 쿨러: ${coolerMaxTdp}W)`);
+                results.suggestions.push(`쿨러 TDP를 ${cpuMaxTdp}W 이상으로 조정하세요`);
             }
         }
 
@@ -410,11 +415,12 @@ function SidebarStack1Expert({
         }
 
         // 11. 🆕 RAM 클럭 ↔ CPU/메인보드 지원 (XMP/EXPO)
-        if (ramSpeed.length > 0 && maxRamSpeed) {
+        // RAM 속도와 메인보드 최대 속도가 모두 설정되어 있을 때만 체크
+        if (ramSpeed.length > 0 && maxRamSpeed && maxRamSpeed > 0) {
             const selectedMaxSpeed = Math.max(...ramSpeed.map((s) => parseInt(s)));
-            if (selectedMaxSpeed <= maxRamSpeed) {
+            if (selectedMaxSpeed > 0 && selectedMaxSpeed <= maxRamSpeed) {
                 results.success.push(`RAM 속도 (${selectedMaxSpeed}MHz) ↔ 메인보드 지원 (최대 ${maxRamSpeed}MHz)`);
-            } else {
+            } else if (selectedMaxSpeed > 0) {
                 results.warnings.push(`RAM 속도 ${selectedMaxSpeed}MHz가 메인보드 지원 ${maxRamSpeed}MHz를 초과합니다`);
                 results.suggestions.push(
                     `메인보드가 ${selectedMaxSpeed}MHz RAM을 지원하는지 확인하거나, RAM 속도를 낮추세요`
@@ -431,7 +437,8 @@ function SidebarStack1Expert({
         }
 
         // 12. 🆕 GPU 두께(슬롯) ↔ 케이스 지원
-        if (gpuSlots && caseGpuSlots) {
+        // GPU 두께와 케이스 지원 두께가 모두 설정되어 있을 때만 체크
+        if (gpuSlots && gpuSlots > 0 && caseGpuSlots && caseGpuSlots > 0) {
             if (gpuSlots <= caseGpuSlots) {
                 results.success.push(`GPU 두께 (${gpuSlots}슬롯) ↔ 케이스 지원 (${caseGpuSlots}슬롯)`);
             } else {
@@ -463,11 +470,12 @@ function SidebarStack1Expert({
         }
 
         // 15. 🆕 RAM 최대 용량 ↔ 메인보드
-        if (ramCapacity && ramMaxCapacity) {
+        // RAM 용량과 메인보드 최대 용량이 모두 설정되어 있을 때만 체크
+        if (ramCapacity && ramMaxCapacity && ramMaxCapacity > 0) {
             const selectedCapacity = parseInt(ramCapacity);
-            if (selectedCapacity <= ramMaxCapacity) {
+            if (selectedCapacity > 0 && selectedCapacity <= ramMaxCapacity) {
                 results.success.push(`RAM 용량 (${ramCapacity}) ↔ 메인보드 지원 (최대 ${ramMaxCapacity}GB)`);
-            } else {
+            } else if (selectedCapacity > 0) {
                 results.errors.push(`RAM 용량 ${ramCapacity}가 메인보드 최대 용량 ${ramMaxCapacity}GB를 초과합니다`);
                 results.suggestions.push(`메인보드를 더 높은 RAM 용량을 지원하는 모델로 변경하세요`);
             }
@@ -504,16 +512,12 @@ function SidebarStack1Expert({
             }
         }
 
-        // 18. 미설정 핵심 필터 체크
-        if (!cpuSocket && !cpuGeneration) {
-            results.warnings.push('CPU 필터가 설정되지 않았습니다');
-        }
-        if (!gpuVram) {
-            results.warnings.push('GPU VRAM이 설정되지 않았습니다');
-        }
-        if (!ramGen || !ramCapacity) {
-            results.warnings.push('RAM 필터가 설정되지 않았습니다');
-        }
+        // 18. 미설정 핵심 필터 체크 (선택적 경고 - 실제 호환성 체크에 필요한 경우만)
+        // 필터가 설정되지 않은 것은 경고가 아니라 무시
+        // 실제로 호환성 체크를 수행하려면 해당 필터가 필요할 때만 경고
+        // 예: CPU 소켓이 설정되지 않으면 쿨러 소켓 호환성 체크 불가능
+        // 하지만 이것은 경고가 아니라 해당 체크를 건너뛰는 것이 맞음
+        // 따라서 미설정 필터 경고는 제거
 
         // 결과 표시
         showCompatibilityResults(results);
@@ -532,64 +536,102 @@ function SidebarStack1Expert({
     const handleStart = () => {
         // 전문가 모드 설정 수집
         const expertSettings = {
-            cpu: {
-                socket: cpuSocket,
-                generation: cpuGeneration,
-                igpu: cpuIgpu,
-                cores: cpuCores,
-                threads: cpuThreads,
-                tdp: cpuTdp,
-            },
-            cooler: {
-                type: coolerType,
-                socket: coolerSocket,
-                height: coolerHeight,
-                fanSize: coolerFanSize,
-                noise: coolerNoise,
-                rgb: coolerRgb,
-            },
-            mainboard: { chipset, formFactor, memoryGen, m2Slots, sataPorts, hasWifi },
-            ram: {
-                gen: ramGen,
-                capacity: ramCapacity,
-                speed: ramSpeed,
-                timing: ramTiming,
-                voltage: ramVoltage,
-                xmp: ramXmp,
-            },
-            gpu: { vram: gpuVram, power: gpuPower, length: gpuLength, fans: gpuFans, backplate: gpuBackplate },
-            psu: {
-                wattage: psuWattage,
-                efficiency: psuEfficiency,
-                cableType: psuCableType,
-                fanSize: psuFanSize,
-                depth: psuDepth,
-            },
-            case: {
-                type: caseType,
-                boardSupport: caseBoardSupport,
-                gpuLength: caseGpuLength,
-                coolerHeight: caseCoolerHeight,
-                fanCount: caseFanCount,
-                airflow: caseAirflow,
-                glass: caseGlass,
-            },
-            storage: {
-                ssd: {
-                    interface: ssdInterface,
-                    formFactor: ssdFormFactor,
-                    capacity: ssdCapacity,
-                    dram: ssdDram,
-                    tbw: ssdTbw,
-                    heatsink: ssdHeatsink,
-                },
-                hdd: { capacity: hddCapacity, rpm: hddRpm },
-            },
-            environment: { caseEnvironment, rgbPreference },
-            budget: currentBudget,
+            // 견적 모드: 전문가 모드는 가이드 방식
+            estimateMode: 'guided',
+            recommendStyle: 'balanced', // 기본값
+            aiFlexibility: 'flexible', // 전문가는 유연 모드
+            
+            // 예산 설정
+            currentBudget,
+            budgetMin: budgetMin,
+            budgetMax: budgetMax,
+            budgetFlexibility: 10, // 기본 10%
             componentRatios,
+            lockedComponents: {},
+            
+            // 전문가 필터 (백엔드 전달용)
+            expertFilters: {
+                cpu: {
+                    socket: cpuSocket,
+                    generation: cpuGeneration,
+                    igpu: cpuIgpu,
+                    cores: cpuCores,
+                    threads: cpuThreads,
+                    tdp: cpuTdp,
+                },
+                cooler: {
+                    type: coolerType,
+                    socket: coolerSocket,
+                    height: coolerHeight,
+                    tdp: coolerTdp,
+                    fanSize: coolerFanSize,
+                    noise: coolerNoise,
+                    rgb: coolerRgb,
+                },
+                mainboard: { 
+                    chipset, 
+                    formFactor, 
+                    memoryGen, 
+                    ramMaxCapacity,
+                    maxRamSpeed,
+                    xmpSupport,
+                    m2Slots, 
+                    sataPorts, 
+                    m2SataConflict,
+                    hasWifi 
+                },
+                ram: {
+                    gen: ramGen,
+                    capacity: ramCapacity,
+                    speed: ramSpeed,
+                    timing: ramTiming,
+                    voltage: ramVoltage,
+                    xmp: ramXmp,
+                },
+                gpu: { 
+                    vram: gpuVram, 
+                    power: gpuPower, 
+                    length: gpuLength, 
+                    slots: gpuSlots,
+                    connector: gpuConnector,
+                    fans: gpuFans, 
+                    backplate: gpuBackplate 
+                },
+                psu: {
+                    wattage: psuWattage,
+                    efficiency: psuEfficiency,
+                    formFactor: psuFormFactor,
+                    connectors: psuConnectors,
+                    cableType: psuCableType,
+                    fanSize: psuFanSize,
+                    depth: psuDepth,
+                },
+                case: {
+                    type: caseType,
+                    boardSupport: caseBoardSupport,
+                    psuSupport: casePsuSupport,
+                    gpuLength: caseGpuLength,
+                    gpuSlots: caseGpuSlots,
+                    coolerHeight: caseCoolerHeight,
+                    fanCount: caseFanCount,
+                    airflow: caseAirflow,
+                    glass: caseGlass,
+                },
+                storage: {
+                    ssd: {
+                        interface: ssdInterface,
+                        formFactor: ssdFormFactor,
+                        capacity: ssdCapacity,
+                        dram: ssdDram,
+                        tbw: ssdTbw,
+                        heatsink: ssdHeatsink,
+                    },
+                    hdd: { capacity: hddCapacity, rpm: hddRpm },
+                },
+                environment: { caseEnvironment, rgbPreference },
+            }
         };
-        onNext(expertSettings);
+        onNext('guided', expertSettings);
     };
 
     return (

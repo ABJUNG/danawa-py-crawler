@@ -39,7 +39,8 @@ public class BuildRecommendationService {
         // 1. 용도별 예산 배분 가져오기
         Map<String, Integer> budgetAllocation = getBudgetAllocation(
             request.getPurpose(), 
-            request.getBudget()
+            request.getBudget(),
+            request.getPreferences()
         );
         
         // 2. 각 카테고리별 최적 부품 후보 선택
@@ -49,9 +50,27 @@ public class BuildRecommendationService {
             String category = entry.getKey();
             int categoryBudget = entry.getValue();
             
-            Part bestPart = findBestPartInBudget(category, categoryBudget, request.getPreferences());
-            if (bestPart != null) {
-                selectedParts.put(category, bestPart);
+            // 쿨러는 공랭 쿨러 우선 선택
+            if ("쿨러".equals(category)) {
+                Part bestPart = findBestCooler(categoryBudget, request.getPreferences());
+                if (bestPart != null) {
+                    selectedParts.put(category, bestPart);
+                }
+            } else {
+                Part bestPart = findBestPartInBudget(category, categoryBudget, request.getPreferences());
+                if (bestPart != null) {
+                    selectedParts.put(category, bestPart);
+                }
+            }
+        }
+        
+        // 쿨러가 빠진 경우 강제 추가 (공랭 쿨러)
+        if (!selectedParts.containsKey("쿨러")) {
+            log.warn("쿨러가 선택되지 않았습니다. 기본 공랭 쿨러를 추가합니다.");
+            int coolerBudget = (int)(request.getBudget() * 0.03);
+            Part defaultCooler = findBestCooler(coolerBudget, request.getPreferences());
+            if (defaultCooler != null) {
+                selectedParts.put("쿨러", defaultCooler);
             }
         }
         
@@ -103,7 +122,7 @@ public class BuildRecommendationService {
     /**
      * 용도별 예산 배분 가져오기
      */
-    private Map<String, Integer> getBudgetAllocation(String purpose, int totalBudget) {
+    private Map<String, Integer> getBudgetAllocation(String purpose, int totalBudget, Map<String, Object> preferences) {
         String sql = """
             SELECT category, weight_percentage
             FROM usage_weights
@@ -116,12 +135,14 @@ public class BuildRecommendationService {
         Map<String, Integer> allocation = new HashMap<>();
         
         if (weights.isEmpty()) {
-            // 기본 배분 (용도 정보 없을 때)
-            allocation.put("CPU", (int)(totalBudget * 0.25));
-            allocation.put("그래픽카드", (int)(totalBudget * 0.30));
+            // 기본 배분 (용도 정보 없을 때) - 쿨러와 HDD 추가
+            allocation.put("CPU", (int)(totalBudget * 0.22));
+            allocation.put("쿨러", (int)(totalBudget * 0.03)); // 쿨러 필수 추가 (공랭 기준 3%)
+            allocation.put("그래픽카드", (int)(totalBudget * 0.26));
             allocation.put("RAM", (int)(totalBudget * 0.12));
-            allocation.put("SSD", (int)(totalBudget * 0.10));
-            allocation.put("메인보드", (int)(totalBudget * 0.15));
+            allocation.put("SSD", (int)(totalBudget * 0.09));
+            allocation.put("HDD", (int)(totalBudget * 0.06)); // HDD 추가 (선택적)
+            allocation.put("메인보드", (int)(totalBudget * 0.14));
             allocation.put("파워", (int)(totalBudget * 0.05));
             allocation.put("케이스", (int)(totalBudget * 0.03));
         } else {
@@ -132,31 +153,143 @@ public class BuildRecommendationService {
             }
         }
         
+        // component_ratios가 제공된 경우 0% 부품 제외 처리
+        if (preferences != null && preferences.containsKey("component_ratios")) {
+            try {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> componentRatios = (Map<String, Object>) preferences.get("component_ratios");
+                
+                // 카테고리 매핑
+                Map<String, String> categoryMapping = new HashMap<>();
+                categoryMapping.put("cpu", "CPU");
+                categoryMapping.put("gpu", "그래픽카드");
+                categoryMapping.put("mainboard", "메인보드");
+                categoryMapping.put("ram", "RAM");
+                categoryMapping.put("storage", "SSD"); // storage는 SSD로 매핑
+                categoryMapping.put("psu", "파워");
+                categoryMapping.put("case", "케이스");
+                categoryMapping.put("cooler", "쿨러");
+                
+                // 0% 부품 제외
+                for (Map.Entry<String, Object> entry : componentRatios.entrySet()) {
+                    String key = entry.getKey();
+                    Object ratioObj = entry.getValue();
+                    
+                    if (ratioObj instanceof Number) {
+                        int ratio = ((Number) ratioObj).intValue();
+                        String dbCategory = categoryMapping.get(key);
+                        
+                        if (ratio == 0 && dbCategory != null) {
+                            // 0%인 카테고리는 제외
+                            allocation.remove(dbCategory);
+                            log.info("0% 설정으로 {} 카테고리 제외", dbCategory);
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("component_ratios 처리 중 오류 발생: {}", e.getMessage());
+            }
+        }
+        
         return allocation;
+    }
+    
+    /**
+     * 공랭 쿨러 우선 선택 (자동 추천 시)
+     */
+    private Part findBestCooler(int budget, Map<String, Object> preferences) {
+        // 추천 스타일에 따른 가격 범위
+        String recommendStyle = getStringValue(preferences, "recommend_style", "balanced");
+        double minMultiplier = 0.7;
+        double maxMultiplier = 1.3;
+        
+        if ("value".equals(recommendStyle)) {
+            minMultiplier = 0.5;
+            maxMultiplier = 0.9;
+        } else if ("highend".equals(recommendStyle)) {
+            minMultiplier = 0.9;
+            maxMultiplier = 1.5;
+        }
+        
+        int minPrice = (int)(budget * minMultiplier);
+        int maxPrice = (int)(budget * maxMultiplier);
+        
+        // 쿨러 검색 (공랭 쿨러 우선)
+        List<Part> candidates = partRepository.findAll(
+            (root, query, cb) -> cb.and(
+                cb.equal(root.get("category"), "쿨러"),
+                cb.between(root.get("price"), minPrice, maxPrice)
+            ),
+            PageRequest.of(0, 20, Sort.by(
+                Sort.Order.desc("starRating"),
+                Sort.Order.asc("price")
+            ))
+        ).getContent();
+        
+        // 공랭 쿨러 필터링 (스펙에서 "공랭" 또는 "타워형" 포함)
+        List<Part> airCoolers = candidates.stream()
+            .filter(p -> {
+                try {
+                    if (p.getPartSpec() != null && p.getPartSpec().getSpecs() != null) {
+                        JSONObject specsJson = new JSONObject(p.getPartSpec().getSpecs());
+                        String productClass = specsJson.optString("product_class", "");
+                        // 공랭, 타워형, 사이드플로우 등의 키워드 포함 시 공랭으로 판단
+                        return productClass.contains("공랭") || 
+                               productClass.contains("타워형") || 
+                               productClass.contains("사이드플로우") ||
+                               !productClass.contains("수랭"); // 수랭이 아니면 공랭으로 간주
+                    }
+                } catch (Exception e) {
+                    log.debug("쿨러 스펙 파싱 실패: {}", e.getMessage());
+                }
+                return true; // 스펙 정보가 없으면 공랭으로 간주
+            })
+            .collect(Collectors.toList());
+        
+        // 공랭 쿨러가 있으면 우선 선택
+        if (!airCoolers.isEmpty()) {
+            return airCoolers.get(0);
+        }
+        
+        // 공랭 쿨러가 없으면 일반 쿨러 중 선택
+        return candidates.isEmpty() ? null : candidates.get(0);
     }
     
     /**
      * 예산 내 최적 부품 찾기 (개선된 버전)
      */
     private Part findBestPartInBudget(String category, int budget, Map<String, Object> preferences) {
+        // 예산 여유도 가져오기 (0-20%, 기본값 10%)
+        int budgetFlexibilityPercent = 10;
+        if (preferences != null && preferences.containsKey("budget_flexibility")) {
+            Object flexObj = preferences.get("budget_flexibility");
+            if (flexObj instanceof Number) {
+                budgetFlexibilityPercent = ((Number) flexObj).intValue();
+            }
+        }
+        double budgetFlexibility = budgetFlexibilityPercent / 100.0; // 0.0 ~ 0.2
+        
         // AI 유연성에 따른 가격 범위 조정
         String aiFlexibility = getStringValue(preferences, "ai_flexibility", "strict");
         double flexibilityMultiplier = "flexible".equals(aiFlexibility) ? 1.3 : 1.2; // 유연 모드는 30%까지 허용
         
         // 추천 스타일에 따른 가격 범위 조정
         String recommendStyle = getStringValue(preferences, "recommend_style", "balanced");
-        double minMultiplier = 0.8;
-        double maxMultiplier = flexibilityMultiplier;
+        double minMultiplier = 0.8 - budgetFlexibility; // 예산 여유도를 최소값에도 적용
+        double maxMultiplier = flexibilityMultiplier + budgetFlexibility; // 예산 여유도를 최대값에도 적용
         
         if ("value".equals(recommendStyle)) {
-            // 가성비: 예산의 60% ~ 90% 범위에서 검색
-            minMultiplier = 0.6;
-            maxMultiplier = 0.9;
+            // 가성비: 예산의 (60%-여유도) ~ (90%+여유도) 범위에서 검색
+            minMultiplier = 0.6 - budgetFlexibility;
+            maxMultiplier = 0.9 + budgetFlexibility;
         } else if ("highend".equals(recommendStyle)) {
-            // 최고사양: 예산의 90% ~ 120% (또는 130%) 범위에서 검색
-            minMultiplier = 0.9;
-            maxMultiplier = flexibilityMultiplier;
+            // 최고사양: 예산의 (90%-여유도) ~ (120%+여유도) 범위에서 검색
+            minMultiplier = 0.9 - budgetFlexibility;
+            maxMultiplier = flexibilityMultiplier + budgetFlexibility;
         }
+        
+        // 최소값이 음수가 되지 않도록 보정
+        minMultiplier = Math.max(0.3, minMultiplier);
         
         int minPrice = (int)(budget * minMultiplier);
         int maxPrice = (int)(budget * maxMultiplier);
@@ -200,6 +333,25 @@ public class BuildRecommendationService {
             ).getContent();
         }
         
+        // RAM 카테고리인 경우 노트북용 제외
+        if ("RAM".equals(category)) {
+            candidates = candidates.stream()
+                .filter(p -> !isNotebookRam(p))
+                .collect(Collectors.toList());
+            
+            // 노트북용만 남은 경우 원본 반환 (데스크탑용이 없을 수 있음)
+            if (candidates.isEmpty()) {
+                log.warn("데스크탑용 RAM을 찾을 수 없습니다. 노트북용 제외 필터를 해제합니다.");
+                candidates = partRepository.findAll(
+                    (root, query, cb) -> cb.and(
+                        cb.equal(root.get("category"), category),
+                        cb.le(root.get("price"), maxPrice)
+                    ),
+                    PageRequest.of(0, 5, sort)
+                ).getContent();
+            }
+        }
+        
         // 추가 필터링 (선택사항)
         candidates = applyAdvancedFilters(candidates, category, preferences);
         
@@ -230,17 +382,22 @@ public class BuildRecommendationService {
         
         List<Part> filtered = new ArrayList<>(candidates);
         
-        // 1. 케이스 크기 필터링 (케이스 카테고리)
+        // 1. 케이스 크기 필터링 및 외장 하드 케이스 제외 (케이스 카테고리)
         if ("케이스".equals(category)) {
+            // 외장 하드 케이스 제외
+            filtered = filtered.stream()
+                .filter(p -> !isExternalCase(p))
+                .collect(Collectors.toList());
+                
             String caseSize = getStringValue(preferences, "case_size", null);
             if (caseSize != null && !caseSize.isEmpty()) {
-                filtered = filtered.stream()
+                List<Part> sizeFiltered = filtered.stream()
                     .filter(p -> matchesCaseSize(p, caseSize))
                     .collect(Collectors.toList());
                 
-                // 필터링 후 결과가 없으면 원본 반환
-                if (filtered.isEmpty()) {
-                    filtered = new ArrayList<>(candidates);
+                // 필터링 후 결과가 있으면 적용
+                if (!sizeFiltered.isEmpty()) {
+                    filtered = sizeFiltered;
                 }
             }
         }
@@ -600,6 +757,73 @@ public class BuildRecommendationService {
         } catch (Exception e) {
             return false;
         }
+    }
+    
+    /**
+     * 노트북용 RAM 여부 확인
+     */
+    private boolean isNotebookRam(Part part) {
+        if (part == null || part.getName() == null) {
+            return false;
+        }
+        String name = part.getName().toLowerCase();
+        
+        // 제품명에서 노트북 키워드 확인
+        if (name.contains("노트북") || name.contains("notebook") || name.contains("laptop")) {
+            return true;
+        }
+        
+        // 스펙에서도 확인
+        try {
+            if (part.getPartSpec() != null && part.getPartSpec().getSpecs() != null) {
+                JSONObject specs = new JSONObject(part.getPartSpec().getSpecs());
+                String deviceType = specs.optString("device_type", "").toLowerCase();
+                String productClass = specs.optString("product_class", "").toLowerCase();
+                
+                if (deviceType.contains("노트북") || deviceType.contains("notebook") || 
+                    deviceType.contains("laptop") || productClass.contains("노트북")) {
+                    return true;
+                }
+            }
+        } catch (Exception e) {
+            // 스펙 파싱 실패 시 무시
+        }
+        
+        return false;
+    }
+    
+    /**
+     * 외장 하드 케이스 여부 확인 (PC 케이스가 아닌 외장 하드 케이스 제외)
+     */
+    private boolean isExternalCase(Part part) {
+        if (part == null || part.getName() == null) {
+            return false;
+        }
+        String name = part.getName().toLowerCase();
+        
+        // 외장 하드, HDD 케이스, 외장케이스 키워드가 있으면 제외
+        if (name.contains("외장") && (name.contains("하드") || name.contains("hdd"))) {
+            return true;
+        }
+        if (name.contains("hdd") && name.contains("케이스") && !name.contains("pc")) {
+            return true;
+        }
+        
+        // 스펙에서도 확인
+        try {
+            if (part.getPartSpec() != null && part.getPartSpec().getSpecs() != null) {
+                JSONObject specs = new JSONObject(part.getPartSpec().getSpecs());
+                String productClass = specs.optString("product_class", "").toLowerCase();
+                
+                if (productClass.contains("외장") || productClass.contains("hdd케이스")) {
+                    return true;
+                }
+            }
+        } catch (Exception e) {
+            // 스펙 파싱 실패 시 무시
+        }
+        
+        return false;
     }
     
     /**

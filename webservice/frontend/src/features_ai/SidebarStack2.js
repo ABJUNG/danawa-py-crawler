@@ -1,7 +1,7 @@
 import React from 'react';
 import { formatPartName } from '../utils/partNameFormatter';
 
-function SidebarStack2({ onModelSelect, onPartEdit, onBack, isActive, selectedParts, partCategories, currentCategory }) {
+function SidebarStack2({ onModelSelect, onPartEdit, onBack, isActive, selectedParts, partCategories, currentCategory, onAutoComplete }) {
     const handlePartEditClick = (categoryId) => {
         // 확정된 부품을 수정하기 위해 선택 해제하고 제품 선택 화면으로 이동
         onPartEdit(categoryId);
@@ -35,7 +35,33 @@ function SidebarStack2({ onModelSelect, onPartEdit, onBack, isActive, selectedPa
     };
 
     const getProgressPercentage = () => {
-        return Math.round((getCompletedCount() / partCategories.length) * 100);
+        const completedCount = getCompletedCount();
+        const totalCategories = partCategories.length;
+        
+        // SSD와 HDD 카테고리 확인
+        const hasSSD = selectedParts['ssd']?.confirmed;
+        const hasHDD = selectedParts['hdd']?.confirmed;
+        
+        // 필수 부품 개수 계산 (SSD/HDD 중 하나만 있어도 OK)
+        // 총 카테고리 수 - 1 (SSD/HDD 둘 중 하나만 필요)
+        const requiredCount = totalCategories - 1;
+        
+        // SSD와 HDD가 모두 선택된 경우, 하나는 카운트에서 제외
+        let adjustedCompletedCount = completedCount;
+        if (hasSSD && hasHDD) {
+            adjustedCompletedCount = completedCount - 1;
+        }
+        
+        // 진행률 계산 (8/9 = 88.89% 이상이면 100%로 표시)
+        let percentage = Math.round((adjustedCompletedCount / requiredCount) * 100);
+        
+        // 88% 이상이면 100%로 고정
+        if (percentage >= 88) {
+            percentage = 100;
+        }
+        
+        // 100%를 초과하지 않도록 제한
+        return Math.min(percentage, 100);
     };
 
     return (
@@ -200,6 +226,7 @@ function SidebarStack2({ onModelSelect, onPartEdit, onBack, isActive, selectedPa
                 {/* AI Auto Complete Button */}
                 <button 
                     className="btn-primary" 
+                    onClick={onAutoComplete}
                     style={{ 
                         width: '100%', 
                         marginBottom: '1rem',
@@ -208,7 +235,17 @@ function SidebarStack2({ onModelSelect, onPartEdit, onBack, isActive, selectedPa
                         padding: '1rem',
                         fontSize: '1rem',
                         fontWeight: '700',
-                        boxShadow: '0 4px 12px rgba(139, 92, 246, 0.3)'
+                        boxShadow: '0 4px 12px rgba(139, 92, 246, 0.3)',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s'
+                    }}
+                    onMouseEnter={(e) => {
+                        e.currentTarget.style.transform = 'translateY(-2px)';
+                        e.currentTarget.style.boxShadow = '0 6px 16px rgba(139, 92, 246, 0.4)';
+                    }}
+                    onMouseLeave={(e) => {
+                        e.currentTarget.style.transform = 'translateY(0)';
+                        e.currentTarget.style.boxShadow = '0 4px 12px rgba(139, 92, 246, 0.3)';
                     }}
                 >
                     ✨ AI 추천으로 전체 자동 구성

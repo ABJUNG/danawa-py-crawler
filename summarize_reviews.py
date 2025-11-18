@@ -25,7 +25,7 @@ if not GOOGLE_API_KEY:
 genai.configure(api_key=GOOGLE_API_KEY)
 
 # --- 3. AI 모델 및 프롬프트 설정 ---
-model = genai.GenerativeModel('gemini-1.5-flash')
+model = genai.GenerativeModel('gemini-2.5-flash')
 
 SUMMARIZE_PROMPT_TEMPLATE = """
 당신은 PC 부품 전문 리뷰어입니다.

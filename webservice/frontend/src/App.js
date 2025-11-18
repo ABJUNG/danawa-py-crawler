@@ -677,8 +677,37 @@ function App() {
 
                 const response = await axios.get(`${API_BASE_URL}/api/parts?${params.toString()}`);
 
-                setParts(response.data.content);
-                setTotalPages(response.data.totalPages);
+                // 디버깅: 응답 데이터 확인
+                console.log('API 응답:', response.data);
+                console.log('응답 타입:', typeof response.data);
+                console.log('배열 여부:', Array.isArray(response.data));
+                
+                // 응답 구조에 따라 데이터 추출
+                let partsData = [];
+                let totalPagesData = 0;
+                
+                if (Array.isArray(response.data)) {
+                    // 응답이 배열인 경우
+                    partsData = response.data;
+                    totalPagesData = 1; // 배열인 경우 페이지 정보가 없으므로 1로 설정
+                    console.log('응답이 배열입니다. 상품 개수:', partsData.length);
+                } else if (response.data && response.data.content) {
+                    // 응답이 Page 객체인 경우 (Spring Data)
+                    partsData = response.data.content || [];
+                    totalPagesData = response.data.totalPages || 0;
+                    console.log('응답이 Page 객체입니다. 상품 개수:', partsData.length);
+                } else {
+                    // 예상치 못한 구조
+                    console.warn('예상치 못한 응답 구조:', response.data);
+                    partsData = [];
+                    totalPagesData = 0;
+                }
+                
+                console.log('최종 상품 데이터:', partsData);
+                console.log('최종 상품 개수:', partsData.length);
+
+                setParts(partsData);
+                setTotalPages(totalPagesData);
 
                 if (keyword && !history.includes(keyword)) {
                     const newHistory = [keyword, ...history];
@@ -1030,8 +1059,21 @@ function App() {
                                     ) : (
                                         <>
                                             <div className="parts-list">
+                                                {(() => {
+                                                    console.log('렌더링 시점 parts 상태:', parts);
+                                                    console.log('parts.length:', parts.length);
+                                                    return null;
+                                                })()}
                                                 {parts.length > 0 ? (
-                                                    parts.map((part) => {
+                                                    parts.map((part, index) => {
+                                                        // 디버깅: 첫 번째 상품 데이터 확인
+                                                        if (index === 0) {
+                                                            console.log('첫 번째 상품 데이터:', part);
+                                                            console.log('상품 ID:', part.id);
+                                                            console.log('상품 이름:', part.name);
+                                                            console.log('상품 카테고리:', part.category);
+                                                        }
+                                                        
                                                         // --- 👇 [수정] getSummarySpecs 함수 호출 ---
                                                         const summarySpecs = getSummarySpecs(part);
 

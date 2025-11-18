@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import { formatPartName } from '../utils/partNameFormatter';
 
 // 백엔드 API 기본 URL
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8080';
@@ -74,22 +75,42 @@ function SidebarStack3({ onProductConfirm, onBack, isActive, currentCategory, cu
             const data = response.data.content || [];
             
             // 제품 데이터 가공
-            const formattedProducts = data.map(part => ({
-                id: part.id,
-                name: part.name,
-                price: part.price,
-                brand: part.manufacturer || '제조사 미상',
-                tags: generateTags(part),
-                aiScore: part.aiScore || 50, // 백엔드에서 계산한 AI 점수 사용
-                stock: '재고풍부', // DB에 재고 정보가 없으므로 기본값
-                shipping: part.price >= 30000 ? '무료배송' : '유료배송',
-                reviewCount: part.reviewCount || 0,
-                starRating: part.starRating || 0,
-                image: part.imgSrc || 'https://via.placeholder.com/150x100/6366f1/ffffff?text=No+Image',
-                aiSummary: part.aiSummary, // 리뷰 요약
-                benchmarks: part.benchmarks || [], // 벤치마크 데이터
-                specs: part.specs ? JSON.parse(part.specs) : {}
-            }));
+            const formattedProducts = data.map(part => {
+                // specs 파싱 - 타입 체크 후 조건부 파싱
+                let specs = {};
+                if (part.specs) {
+                    try {
+                        if (typeof part.specs === 'string') {
+                            // 문자열인 경우에만 JSON.parse 시도
+                            specs = JSON.parse(part.specs);
+                        } else if (typeof part.specs === 'object') {
+                            // 이미 객체인 경우 그대로 사용
+                            specs = part.specs;
+                        }
+                    } catch (e) {
+                        // JSON 파싱 실패 시 빈 객체 사용
+                        console.warn('Specs 파싱 실패:', part.id, e);
+                        specs = {};
+                    }
+                }
+                
+                return {
+                    id: part.id,
+                    name: part.name,
+                    price: part.price,
+                    brand: part.manufacturer || '제조사 미상',
+                    tags: generateTags(part),
+                    aiScore: part.aiScore || 50, // 백엔드에서 계산한 AI 점수 사용
+                    stock: '재고풍부', // DB에 재고 정보가 없으므로 기본값
+                    shipping: part.price >= 30000 ? '무료배송' : '유료배송',
+                    reviewCount: part.reviewCount || 0,
+                    starRating: part.starRating || 0,
+                    image: part.imgSrc || 'https://via.placeholder.com/150x100/6366f1/ffffff?text=No+Image',
+                    aiSummary: part.aiSummary, // 리뷰 요약
+                    benchmarks: part.benchmarks || [], // 벤치마크 데이터
+                    specs: specs
+                };
+            });
 
             setProducts(formattedProducts);
 
@@ -110,6 +131,51 @@ function SidebarStack3({ onProductConfirm, onBack, isActive, currentCategory, cu
      */
     const generateTags = (part) => {
         const tags = [];
+        
+        // RAM/SSD/HDD 카테고리에 대한 용량 정보 추가
+        const categoryName = getCategoryName(currentCategory);
+        if (categoryName === 'RAM' || categoryName === 'SSD' || categoryName === 'HDD') {
+            try {
+                // specs 파싱 - 타입 체크 후 조건부 파싱
+                let specs = {};
+                if (part.specs) {
+                    if (typeof part.specs === 'string') {
+                        specs = JSON.parse(part.specs);
+                    } else if (typeof part.specs === 'object') {
+                        specs = part.specs;
+                    }
+                }
+                
+                if (categoryName === 'RAM') {
+                    // RAM: 용량 + 개수
+                    if (specs.capacity) tags.push(specs.capacity);
+                    if (specs.ram_count) tags.push(specs.ram_count);
+                } else if (categoryName === 'SSD') {
+                    // SSD: 저장 용량
+                    if (specs.storage_capacity) tags.push(specs.storage_capacity);
+                } else if (categoryName === 'HDD') {
+                    // HDD: 디스크 용량
+                    if (specs.disk_capacity) tags.push(specs.disk_capacity);
+                }
+            } catch (e) {
+                // 스펙 파싱 실패 시 제품명에서 용량 추출 시도
+                const name = part.name || '';
+                
+                // GB/TB 패턴 추출
+                const capacityMatch = name.match(/(\d+(?:\.\d+)?)\s*(TB|GB)/i);
+                if (capacityMatch) {
+                    tags.push(capacityMatch[0]);
+                }
+                
+                // RAM 개수 추출 (예: 2개, x2)
+                if (categoryName === 'RAM') {
+                    const countMatch = name.match(/(\d+개|\d+\s*x\s*\d+)/i);
+                    if (countMatch) {
+                        tags.push(countMatch[0]);
+                    }
+                }
+            }
+        }
         
         // 가격 태그
         if (part.price < 100000) tags.push('저렴함');
@@ -414,6 +480,28 @@ function SidebarStack3({ onProductConfirm, onBack, isActive, currentCategory, cu
                                             {tag}
                                         </span>
                                     ))}
+                                    {/* RAM/SSD/HDD 용량 표시 */}
+                                    {(() => {
+                                        const categoryName = getCategoryName(currentCategory);
+                                        if (['RAM', 'SSD', 'HDD'].includes(categoryName)) {
+                                            const formatted = formatPartName(product.name, categoryName);
+                                            if (formatted.capacity || formatted.package) {
+                                                return (
+                                                    <span style={{
+                                                        fontSize: '0.75rem',
+                                                        padding: '0.2rem 0.6rem',
+                                                        borderRadius: '4px',
+                                                        background: '#dcfce7',
+                                                        color: '#166534',
+                                                        fontWeight: '600'
+                                                    }}>
+                                                        {formatted.capacity || formatted.package}
+                                                    </span>
+                                                );
+                                            }
+                                        }
+                                        return null;
+                                    })()}
                                 </div>
 
                                 {/* 가격 & 리뷰 */}

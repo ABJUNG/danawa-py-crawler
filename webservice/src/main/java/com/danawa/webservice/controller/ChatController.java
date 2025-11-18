@@ -21,7 +21,25 @@ public class ChatController {
     private final ChatService chatService;
     
     /**
-     * 대화형 AI 챗봇 메시지 처리
+     * 간단한 챗봇 메시지 처리 (text/plain)
+     * POST /api/chat
+     */
+    @PostMapping(consumes = "text/plain;charset=UTF-8", produces = "text/plain;charset=UTF-8")
+    public ResponseEntity<String> sendSimpleMessage(@RequestBody String userMessage) {
+        log.info("챗봇 메시지 수신 (간단 모드): {}", userMessage);
+        
+        try {
+            // ChatService를 통해 AI 응답 생성
+            String aiResponse = chatService.getAiResponse(userMessage);
+            return ResponseEntity.ok(aiResponse);
+        } catch (Exception e) {
+            log.error("챗봇 메시지 처리 중 오류 발생", e);
+            return ResponseEntity.ok("죄송합니다. 일시적인 오류가 발생했습니다. 다시 시도해주세요.");
+        }
+    }
+    
+    /**
+     * 대화형 AI 챗봇 메시지 처리 (JSON)
      * POST /api/chat/message
      */
     @PostMapping("/message")

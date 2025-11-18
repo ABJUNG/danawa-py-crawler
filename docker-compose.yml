@@ -30,8 +30,8 @@ services:
     depends_on:
       db:
         condition: service_healthy # DB가 완전히 준비될 때까지 대기
-    env_file: # 👈 이 부분을 추가
-    - ./.env  # 👈 .env 파일을 읽어 GOOGLE_API_KEY를 주입
+    env_file:
+      - ./.env  # .env 파일을 읽어 GOOGLE_API_KEY를 주입
     ports:
       - "8080:8080"
     networks:
@@ -44,6 +44,8 @@ services:
       # Hibernate DDL 설정: validate로 변경하여 테이블 수정 방지
       SPRING_JPA_HIBERNATE_DDL_AUTO: validate
       SPRING_JPA_DATABASE_PLATFORM: org.hibernate.dialect.MySQLDialect
+      # Google Gemini API Key (env_file에서 자동으로 읽어옴)
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY}
       # TZ: Asia/Seoul # 필요시 시간대 설정
     # JAR 파일을 사용하여 애플리케이션 실행 (Dockerfile에서 빌드된 JAR 사용)
 

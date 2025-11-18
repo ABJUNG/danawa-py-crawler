@@ -10,8 +10,10 @@ import jakarta.persistence.PersistenceContext;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.JoinType; // --- 1. (추가) JoinType import ---
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.json.JSONObject;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
@@ -19,8 +21,10 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.MultiValueMap;
 
 import java.util.*;
+import java.util.Collections;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @Transactional(readOnly = true)
 @RequiredArgsConstructor
@@ -96,16 +100,136 @@ public class PartService {
 
     /**
      * [수정됨] Part 엔티티가 아닌 DTO를 반환합니다.
+     * JSON 스펙 필터링 지원 추가
      */
     public Page<PartResponseDto> findByFilters(MultiValueMap<String, String> filters, Pageable pageable) {
-        // (주의!) 현재 createSpecification 함수는 JSON 필터링을 지원하지 않습니다.
-        // (App.js에서 필터 선택 시, 해당 로직을 추가 구현해야 합니다.)
+        String category = filters.getFirst("category");
+        System.out.println("=== findByFilters 호출 ===");
+        System.out.println("카테고리: " + category);
+        
         Specification<Part> spec = createSpecification(filters);
         Page<Part> partPage = partRepository.findAll(spec, pageable);
         
+        System.out.println("조회된 상품 수 (totalElements): " + partPage.getTotalElements());
+        System.out.println("조회된 상품 목록 크기 (content.size): " + partPage.getContent().size());
+        System.out.println("총 페이지 수: " + partPage.getTotalPages());
+        
+        // JSON 필터가 있는지 확인
+        Set<String> excludedKeys = Set.of("category", "keyword", "manufacturer", "page", "size", "sort");
+        boolean hasJsonFilters = filters.entrySet().stream()
+            .anyMatch(entry -> !excludedKeys.contains(entry.getKey()) && 
+                             entry.getValue() != null && 
+                             !entry.getValue().isEmpty() && 
+                             !entry.getValue().get(0).isEmpty());
+        
+        Page<Part> filteredPage;
+        if (hasJsonFilters) {
+            // JSON 필터링이 필요한 경우, 전체 데이터를 조회하여 필터링 후 페이징 적용
+            // 성능을 위해 큰 사이즈로 조회 (최대 10000개)
+            Pageable largePageable = org.springframework.data.domain.PageRequest.of(0, 10000, pageable.getSort());
+            Page<Part> allPartsPage = partRepository.findAll(spec, largePageable);
+            
+            // 전체 데이터 필터링
+            List<Part> allFilteredParts = allPartsPage.getContent().stream()
+                .filter(part -> matchesJsonFilters(part, filters))
+                .collect(Collectors.toList());
+            
+            System.out.println("전체 JSON 필터링 후 상품 수: " + allFilteredParts.size());
+            
+            // 필터링된 결과에 페이징 적용
+            int start = (int) pageable.getOffset();
+            int end = Math.min((start + pageable.getPageSize()), allFilteredParts.size());
+            List<Part> pagedFilteredParts = start < allFilteredParts.size() 
+                ? allFilteredParts.subList(start, end)
+                : Collections.emptyList();
+            
+            filteredPage = new PageImpl<>(
+                pagedFilteredParts,
+                pageable,
+                allFilteredParts.size()
+            );
+        } else {
+            // JSON 필터가 없으면 필터링 없이 그대로 반환
+            filteredPage = partPage;
+        }
+        
         // Page<Part>를 Page<PartResponseDto>로 변환하여 반환
-        // (N+1 문제 경고: DTO 생성자가 PartSpec, CommunityReviews를 Lazy Loading 할 수 있음)
-        return partPage.map(PartResponseDto::new); // 람다를 메서드 레퍼런스로 변경
+        return filteredPage.map(PartResponseDto::new);
+    }
+    
+    /**
+     * JSON 스펙 필터링 검사
+     */
+    private boolean matchesJsonFilters(Part part, MultiValueMap<String, String> filters) {
+        // category, keyword, manufacturer, page, size, sort는 이미 처리되었거나 페이징/정렬용이므로 제외
+        // manufacturer는 SQL에서 직접 필터링되므로 JSON 필터링에서 제외
+        Set<String> excludedKeys = Set.of("category", "keyword", "manufacturer", "page", "size", "sort");
+        
+        // 필터링할 실제 필터 키가 있는지 확인
+        boolean hasJsonFilters = false;
+        for (Map.Entry<String, List<String>> entry : filters.entrySet()) {
+            String key = entry.getKey();
+            List<String> values = entry.getValue();
+            
+            if (!excludedKeys.contains(key) && 
+                values != null && !values.isEmpty() && !values.get(0).isEmpty()) {
+                hasJsonFilters = true;
+                break;
+            }
+        }
+        
+        // JSON 필터가 없으면 모든 상품 통과
+        if (!hasJsonFilters) {
+            return true;
+        }
+        
+        // PartSpec이 없으면 필터링에서 제외하지 않고 통과 (필터가 없을 때와 동일하게 처리)
+        if (part.getPartSpec() == null || part.getPartSpec().getSpecs() == null) {
+            log.warn("Part ID {} has no PartSpec, skipping JSON filter check", part.getId());
+            return true; // PartSpec이 없어도 통과 (데이터가 없을 수 있으므로)
+        }
+        
+        for (Map.Entry<String, List<String>> entry : filters.entrySet()) {
+            String key = entry.getKey();
+            List<String> values = entry.getValue();
+            
+            if (excludedKeys.contains(key) || 
+                values == null || values.isEmpty() || values.get(0).isEmpty()) {
+                continue;
+            }
+            
+            // JSON 스펙 필터링
+            try {
+                JSONObject specsJson = new JSONObject(part.getPartSpec().getSpecs());
+                
+                // JSON에서 해당 키의 값 확인
+                if (specsJson.has(key)) {
+                    Object jsonValue = specsJson.get(key);
+                    String jsonValueStr = jsonValue != null ? jsonValue.toString() : "";
+                    
+                    // 필터 값과 일치하는지 확인 (대소문자 무시)
+                    boolean matches = values.stream()
+                        .anyMatch(filterValue -> jsonValueStr.equalsIgnoreCase(filterValue) ||
+                                jsonValueStr.contains(filterValue) ||
+                                filterValue.contains(jsonValueStr));
+                    
+                    if (!matches) {
+                        return false; // 하나라도 일치하지 않으면 제외
+                    }
+                } else {
+                    // JSON에 해당 키가 없으면 필터링에서 제외하지 않고 통과
+                    // (스펙 정보가 없을 수 있으므로 엄격하게 필터링하지 않음)
+                    log.debug("Part ID {} JSON does not have key '{}', allowing through", part.getId(), key);
+                    continue;
+                }
+            } catch (Exception e) {
+                // JSON 파싱 실패 시 로그만 남기고 통과 (데이터 문제일 수 있으므로)
+                log.warn("Failed to parse JSON for Part ID {}: {}", part.getId(), e.getMessage());
+                continue;
+            }
+        }
+        
+        return true;
     }
 
     /**
@@ -129,6 +253,9 @@ public class PartService {
         return (root, query, cb) -> {
             Predicate predicate = cb.conjunction();
             
+            // 디버깅: 필터 키 확인
+            log.debug("createSpecification - 필터 키들: {}", filters.keySet());
+            
             // (1단계에서 삭제한 스펙 필드 필터링 로직은 비활성화 상태 유지)
             // List<String> allFilterKeys = new ArrayList<>();
             // FILTERABLE_COLUMNS.values().forEach(allFilterKeys::addAll);
@@ -136,12 +263,29 @@ public class PartService {
             for (Map.Entry<String, List<String>> entry : filters.entrySet()) {
                 String key = entry.getKey();
                 List<String> values = entry.getValue();
-                if (values == null || values.isEmpty() || values.get(0).isEmpty()) continue;
+                
+                log.debug("createSpecification - 처리 중인 키: {}, 값: {}", key, values);
+                
+                if (values == null || values.isEmpty() || values.get(0).isEmpty()) {
+                    log.debug("createSpecification - 키 '{}'의 값이 비어있어 건너뜀", key);
+                    continue;
+                }
 
                 if (key.equals("category")) {
+                    // category 필터 적용
+                    log.debug("createSpecification - category 필터 적용: {}", values);
                     predicate = cb.and(predicate, root.get("category").in(values));
                 } else if (key.equals("keyword")) {
+                    // keyword 필터 적용
+                    log.debug("createSpecification - keyword 필터 적용: {}", values.get(0));
                     predicate = cb.and(predicate, cb.like(root.get("name"), "%" + values.get(0) + "%"));
+                } else if (key.equals("manufacturer")) {
+                    // manufacturer 필터 적용 (일반 컬럼이므로 SQL에서 직접 필터링)
+                    log.debug("createSpecification - manufacturer 필터 적용: {}", values);
+                    predicate = cb.and(predicate, root.get("manufacturer").in(values));
+                } else {
+                    // 기타 필터는 무시 (JSON 필터링은 나중에 matchesJsonFilters에서 처리)
+                    log.debug("createSpecification - 키 '{}'는 SQL 필터링에서 무시됨 (JSON 필터링으로 처리)", key);
                 }
                 
                 // (1단계에서 주석 처리한 JSON 스펙 필터링 로직)
@@ -161,6 +305,7 @@ public class PartService {
             }
             // --- 2. (추가 완료) ---
 
+            log.debug("createSpecification - 최종 predicate 생성 완료");
             return predicate;
         };
     }
