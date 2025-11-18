@@ -943,22 +943,57 @@ function App() {
                     element={
                         // --- [수정] 4. 최상위 div에 theme 클래스 적용 ---
                         <div className="app-container">
+                            {/* 고정 네비게이션 바 */}
+                            <nav className="main-navbar">
+                                <div className="nav-brand-main">💻 다 나올까?</div>
+                                <div className="navbar-actions-main">
+                                    <button 
+                                        className="theme-toggle-btn" 
+                                        onClick={toggleTheme}
+                                        title={theme === 'light' ? '다크 모드로 전환' : '라이트 모드로 전환'}
+                                    >
+                                        {theme === 'light' ? '🌙' : '☀️'}
+                                    </button>
+                                    <Link 
+                                        to="/ai" 
+                                        style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '0.5rem',
+                                            padding: '0.6rem 1.2rem',
+                                            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                                            color: '#ffffff',
+                                            border: 'none',
+                                            borderRadius: '8px',
+                                            fontSize: '0.9rem',
+                                            fontWeight: '600',
+                                            textDecoration: 'none',
+                                            cursor: 'pointer',
+                                            transition: 'all 0.25s ease',
+                                            boxShadow: '0 2px 6px rgba(102, 126, 234, 0.3)'
+                                        }}
+                                        onMouseEnter={(e) => {
+                                            e.target.style.background = 'linear-gradient(135deg, #764ba2 0%, #667eea 100%)';
+                                            e.target.style.transform = 'translateY(-1px)';
+                                            e.target.style.boxShadow = '0 4px 12px rgba(102, 126, 234, 0.4)';
+                                        }}
+                                        onMouseLeave={(e) => {
+                                            e.target.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
+                                            e.target.style.transform = 'translateY(0)';
+                                            e.target.style.boxShadow = '0 2px 6px rgba(102, 126, 234, 0.3)';
+                                        }}
+                                    >
+                                        <span>🤖</span>
+                                        <span>AI 견적 추천</span>
+                                    </Link>
+                                </div>
+                            </nav>
+
                             <header>
                                 <h1>💻 다 나올까? 💻</h1>
 
                                 {/* 팀장 주석 유지: subtitle */}
                                 <p className="app-subtitle">웹 크롤링을 이용한 PC 부품 가격 비교 앱</p>
-
-                                {/* --- [추가] 5. 테마 변경 버튼 --- */}
-                                <button className="theme-toggle-btn" onClick={toggleTheme}>
-                                    {theme === 'light' ? '🌙' : '☀️'}
-                                </button>
-
-                                {/* 네 버전의 네비게이션 유지 */}
-                                <nav className="top-nav">
-                                    <Link to="/">가격 비교</Link>
-                                    <Link to="/ai">AI 견적 추천</Link>
-                                </nav>
                             </header>
 
                             <nav className="category-nav">

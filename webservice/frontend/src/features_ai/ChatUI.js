@@ -28,15 +28,6 @@ function ChatUI({ onComplete }) {
             ],
         },
         {
-            id: 'monitorRelevance',
-            question:
-                '현재 사용 중인 모니터나, 새로 맞추려는 모니터가 있으신가요? 있다면 해상도나 주사율에 맞춰 견적을 조정해드릴 수 있어요.',
-            options: [
-                { text: 'PC 사양만 고려할게요', value: 'pc_only' },
-                { text: '모니터 사양에 맞춰 추천해주세요', value: 'consider_monitor' },
-            ],
-        },
-        {
             id: 'estimatePurpose',
             question:
                 '이번 견적은 완전히 새로 맞추시려는 건가요, 아니면 기존 부품을 일부 유지하면서 업그레이드하시려는 건가요?',

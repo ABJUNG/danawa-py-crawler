@@ -217,7 +217,7 @@ function SidebarStack1({ onNext, isActive, userAnswers = {}, isLoadingAI = false
             return; // 답변이 없으면 기본값 유지
         }
 
-        const { skillLevel, specAwareness, estimatePurpose, monitorRelevance } = userAnswers;
+        const { skillLevel, specAwareness, estimatePurpose } = userAnswers;
 
         // skillLevel 기반 초기 설정
         if (skillLevel === 'beginner') {
@@ -264,11 +264,6 @@ function SidebarStack1({ onNext, isActive, userAnswers = {}, isLoadingAI = false
             setUpgradePlan(false);
         }
 
-        // monitorRelevance는 향후 모니터 관련 설정에 활용 가능
-        // 현재는 로그만 출력
-        if (monitorRelevance === 'consider_monitor') {
-            console.log('사용자가 모니터 사양을 고려하길 원함');
-        }
     }, [userAnswers]); // userAnswers가 변경될 때만 실행
 
     const handleStart = () => {
