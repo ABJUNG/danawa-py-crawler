@@ -1,0 +1,8 @@
+steps:
+# 'danawa-summarizer' 이미지만 빌드합니다.
+- name: 'gcr.io/cloud-builders/docker'
+  args: [ 'build', '-t', 'gcr.io/$PROJECT_ID/danawa-summarizer', '-f', 'Dockerfile.summarizer', '.' ]
+
+images:
+# 빌드된 'danawa-summarizer' 이미지만 Artifact Registry에 푸시합니다.
+- 'gcr.io/$PROJECT_ID/danawa-summarizer'

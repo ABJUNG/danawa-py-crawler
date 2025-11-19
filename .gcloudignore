@@ -1,0 +1,22 @@
+# Git 폴더 제외
+.git/
+
+# IDE 설정 제외
+.idea/
+.vscode/
+
+# Python 캐시 제외
+__pycache__/
+*.pyc
+
+# Java 빌드 결과물 제외
+webservice/target/
+
+# Node.js 모듈 제외 (빌드 시 컨테이너 내부에서 설치)
+webservice/frontend/node_modules/
+
+# 로컬 DB 데이터 제외
+db-data/
+
+# 환경 변수 파일 제외
+.env

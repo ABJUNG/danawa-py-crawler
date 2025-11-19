@@ -1,29 +1,35 @@
 /* --- 1. 기본 & 다크/라이트 테마 변수 --- */
 :root {
-  --bg-color: #f7fafc;
+  --bg-color: #f8fafc;
   --container-bg-color: #ffffff;
   --panel-bg-color: #ffffff;
-  --text-color: #1a202c;
-  --subtext-color: #718096;
+  --text-color: #1e293b;
+  --subtext-color: #64748b;
   --border-color: #e2e8f0;
-  --primary-color: #3182ce;
-  --primary-color-light: #ebf8ff;
-  --hover-bg-color: #f7fafc;
+  --primary-color: #2563eb;
+  --primary-color-light: #dbeafe;
+  --hover-bg-color: #f1f5f9;
   --shadow-color: rgba(0, 0, 0, 0.05);
+  --gradient-primary: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  --gradient-primary-hover: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
+  --gradient-secondary: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
 }
 
 /* [수정] JS와 연동될 다크모드 변수 */
 .app-wrapper.dark {
-  --bg-color: #1a202c;
-  --container-bg-color: #2d3748;
-  --panel-bg-color: #27303f;
-  --text-color: #e2e8f0;
-  --subtext-color: #a0aec0;
-  --border-color: #4a5568;
-  --primary-color: #63b3ed;
-  --primary-color-light: #2c5282;
-  --hover-bg-color: #4a5568;
-  --shadow-color: rgba(0, 0, 0, 0.2);
+  --bg-color: #0f172a;
+  --container-bg-color: #1e293b;
+  --panel-bg-color: #1e293b;
+  --text-color: #f1f5f9;
+  --subtext-color: #94a3b8;
+  --border-color: #334155;
+  --primary-color: #3b82f6;
+  --primary-color-light: #1e3a8a;
+  --hover-bg-color: #334155;
+  --shadow-color: rgba(0, 0, 0, 0.3);
+  --gradient-primary: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  --gradient-primary-hover: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%);
+  --gradient-secondary: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
 }
 
 /* --- 2. 기본 & 레이아웃 --- */
@@ -42,37 +48,128 @@ body {
 }
 
 .app-container {
-  max-width: 1280px;
-  margin: 2rem auto;
-  padding: 2.5rem;
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 2rem;
   background-color: var(--container-bg-color);
-  border-radius: 12px;
-  box-shadow: 0 8px 24px var(--shadow-color);
+  min-height: 100vh;
+}
+
+/* 고정 네비게이션 바 */
+.main-navbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  background: var(--container-bg-color);
+  border-bottom: 1px solid var(--border-color);
+  padding: 1rem 2rem;
+  z-index: 1000;
+  box-shadow: 0 2px 8px var(--shadow-color);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.nav-brand-main {
+  font-size: 1.5rem;
+  font-weight: 700;
+  background: var(--gradient-primary);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  letter-spacing: -0.5px;
+}
+
+.navbar-actions-main {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.theme-toggle-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  padding: 0;
+  background: var(--container-bg-color);
+  color: var(--subtext-color);
+  border: 2px solid var(--border-color);
+  border-radius: 8px;
+  font-size: 1.2rem;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  box-shadow: 0 2px 6px var(--shadow-color);
+}
+
+.theme-toggle-btn:hover {
+  background: var(--hover-bg-color);
+  border-color: var(--primary-color);
+  color: var(--primary-color);
+  transform: translateY(-1px) rotate(15deg);
+  box-shadow: 0 4px 10px rgba(37, 99, 235, 0.2);
 }
 
 header {
   position: relative;
   text-align: center;
-  margin-bottom: 2.5rem;
-  border-bottom: 1px solid var(--border-color);
-  padding-bottom: 1.5rem;
+  margin-bottom: 3rem;
+  margin-top: 80px;
+  padding: 3rem 0 2rem 0;
+  border-bottom: 2px solid var(--border-color);
 }
 
 /* [추가] 타이틀 그라데이션 스타일 */
 h1 {
-  font-size: 2.8rem;
+  font-size: 3.5rem;
   font-weight: 800;
   margin: 0 0 0.5rem 0;
-  background: linear-gradient(45deg, #3182ce, #a6d1f5);
+  background: var(--gradient-primary);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
+  letter-spacing: -1px;
 }
 
 .app-subtitle {
-  font-size: 1rem;
+  font-size: 1.1rem;
   color: var(--subtext-color);
-  margin-top: 0;
+  margin-top: 0.5rem;
+  font-weight: 500;
+}
+
+/* --- 상단 네비게이션 (가격 비교 / AI 견적 추천) --- */
+.top-nav {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  margin-top: 2rem;
+}
+
+.top-nav a {
+  padding: 0.75rem 2rem;
+  font-size: 1rem;
+  font-weight: 600;
+  text-decoration: none;
+  color: #ffffff;
+  border: none;
+  border-radius: 10px;
+  background: var(--gradient-primary);
+  transition: all 0.25s ease;
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+.top-nav a:hover {
+  background: var(--gradient-primary-hover);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(102, 126, 234, 0.4);
+}
+
+.top-nav a.active {
+  background: var(--gradient-primary);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
 }
 
 /* --- 카테고리 네비게이션 --- */
@@ -86,29 +183,31 @@ h1 {
 .category-btn {
     flex: 1;
     text-align: center;
-    padding: 0.8rem 1rem;
+    padding: 0.9rem 1.2rem;
     font-size: 1rem;
     font-weight: 600;
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
+    border: 2px solid var(--border-color);
+    border-radius: 10px;
     background-color: var(--container-bg-color);
     color: var(--text-color);
     cursor: pointer;
-    transition: all 0.2s ease-in-out;
+    transition: all 0.25s ease;
+    box-shadow: 0 2px 6px var(--shadow-color);
 }
 
 .category-btn:hover {
     background-color: var(--hover-bg-color);
     border-color: var(--primary-color);
     transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
 }
 
 .category-btn.active {
-    background-color: var(--primary-color);
+    background: var(--gradient-secondary);
     color: #fff;
-    border-color: var(--primary-color);
+    border-color: transparent;
     transform: translateY(-2px);
-    box-shadow: 0 4px 14px rgba(49, 130, 206, 0.3);
+    box-shadow: 0 6px 16px rgba(37, 99, 235, 0.3);
 }
 
 /* --- 메인 콘텐츠 2단 레이아웃 --- */
@@ -130,23 +229,26 @@ h1 {
 /* 필터 제목 역할을 하는 버튼 */
 .filter-button {
     width: 100%;
-    padding: 0.7rem 1rem;
-    font-size: 0.9rem;
+    padding: 0.8rem 1rem;
+    font-size: 0.95rem;
     font-weight: 600;
-    border: 1px solid var(--border-color);
-    border-radius: 6px;
+    border: 2px solid var(--border-color);
+    border-radius: 8px;
     background-color: var(--container-bg-color);
     color: var(--text-color);
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: all 0.25s ease;
     display: flex;
     justify-content: space-between;
     align-items: center;
     text-align: left;
+    box-shadow: 0 2px 4px var(--shadow-color);
 }
 .filter-button:hover {
     border-color: var(--primary-color);
     background-color: var(--hover-bg-color);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(37, 99, 235, 0.15);
 }
 
 .filter-group.active .filter-button {
@@ -222,17 +324,19 @@ h1 {
 .controls-container {
     background-color: var(--panel-bg-color);
     padding: 1.5rem;
-    border-radius: 8px;
+    border-radius: 12px;
     border: 1px solid var(--border-color);
+    box-shadow: 0 4px 12px var(--shadow-color);
 }
 
 .controls-title {
-    font-size: 1.25rem;
+    font-size: 1.3rem;
     font-weight: 700;
     margin: 0 0 1.5rem 0;
     padding-bottom: 1rem;
-    border-bottom: 1px solid var(--border-color);
+    border-bottom: 2px solid var(--border-color);
     color: var(--text-color);
+    letter-spacing: -0.3px;
 }
 
 .controls-container-grid {
@@ -325,17 +429,34 @@ h1 {
     background-color: var(--primary-color-light);
 }
 .radio-label input:checked + .radio-text {
-    background-color: var(--primary-color);
+    background: var(--gradient-secondary);
     color: #fff;
-    border-color: var(--primary-color);
-    font-weight: 500;
+    border-color: transparent;
+    font-weight: 600;
+    box-shadow: 0 2px 8px rgba(37, 99, 235, 0.3);
 }
 
 /* --- 검색창 & 히스토리 --- */
 .search-container { position: relative; }
 .search-bar { display: flex; }
 .search-bar input { width: 100%; padding: 0.6rem; font-size: 0.9rem; border-radius: 6px 0 0 6px; border: 1px solid var(--border-color); background-color: var(--bg-color); color: var(--text-color); border-right: none; }
-.search-bar button { border: none; background-color: var(--primary-color); color: white; border-radius: 0 6px 6px 0; font-size: 0.9rem; cursor: pointer; font-weight: 600; padding: 0 1.2rem; white-space: nowrap; }
+.search-bar button { 
+    border: none; 
+    background: var(--gradient-secondary); 
+    color: white; 
+    border-radius: 0 8px 8px 0; 
+    font-size: 0.9rem; 
+    cursor: pointer; 
+    font-weight: 600; 
+    padding: 0 1.5rem; 
+    white-space: nowrap;
+    transition: all 0.25s ease;
+    box-shadow: 0 2px 6px rgba(37, 99, 235, 0.2);
+}
+.search-bar button:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 10px rgba(37, 99, 235, 0.3);
+}
 .history-container { position: absolute; top: 100%; left: 0; right: 0; margin-top: 5px; z-index: 10; border: 1px solid var(--border-color); background-color: var(--container-bg-color); border-radius: 8px; box-shadow: 0 4px 8px var(--shadow-color); }
 .history-list { list-style: none; padding: 0.5rem; margin: 0; }
 .history-item { display: flex; justify-content: space-between; align-items: center; padding: 0.6rem 0.8rem; border-radius: 4px; }
@@ -360,21 +481,19 @@ h1 {
 }
 .part-card {
     background-color: var(--container-bg-color);
-    border-radius: 8px;
-    box-shadow: 0 4px 6px var(--shadow-color);
+    border-radius: 12px;
+    box-shadow: 0 4px 12px var(--shadow-color);
     border: 1px solid var(--border-color);
     overflow: hidden;
-    /* transition에 border-color 추가 */
-    transition: transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     display: flex;
     flex-direction: column;
     height: 100%;
 }
 
 .part-card:hover {
-    transform: translateY(-8px); /* 좀 더 역동적인 움직임 */
-    /* 그림자를 더 풍부하고 입체적으로 변경 */
-    box-shadow: 0 12px 20px var(--shadow-color);
+    transform: translateY(-8px);
+    box-shadow: 0 16px 32px rgba(37, 99, 235, 0.15);
     border-color: var(--primary-color);
 }
 
@@ -384,7 +503,8 @@ h1 {
     object-fit: contain;
     padding: 1rem;
     box-sizing: border-box;
-    background-color: #fff;
+    background-color: var(--container-bg-color);
+    transition: background-color 0.3s ease;
 }
 
 .part-info {
@@ -399,14 +519,14 @@ h1 {
     font-size: 1rem;
     font-weight: 700;
     margin: 0 0 0.5rem 0;
-    /* [수정] 카드 높이 일관성을 위해 min-height 고정 (약 2줄 분량) */
-    min-height: 2.8em; 
+    /* [수정] 카드 높이 일관성을 위해 min-height 고정 (약 3줄 분량) */
+    min-height: 4.2em; 
     line-height: 1.4em;
-    /* [수정] 2줄 초과 시 ... 처리 */
+    /* [수정] 3줄까지 표시, 초과 시 ... 처리 */
     overflow: hidden;
     text-overflow: ellipsis;
     display: -webkit-box;
-    -webkit-line-clamp: 2;
+    -webkit-line-clamp: 3;
     -webkit-box-orient: vertical;
     /* flex-grow: 1; 👈 이 속성은 삭제합니다 (가격 고정을 위해) */
     color: var(--text-color);
@@ -469,11 +589,11 @@ h1 {
 
 .page-btn {
     /* 크기를 고정하여 원형으로 만듭니다 */
-    width: 38px;
-    height: 38px;
+    width: 40px;
+    height: 40px;
     padding: 0; /* 내부 패딩 제거 */
     
-    border: 1px solid var(--border-color);
+    border: 2px solid var(--border-color);
     border-radius: 50%; /* 완전한 원형 */
     background-color: var(--container-bg-color);
     
@@ -486,13 +606,16 @@ h1 {
     align-items: center;
     justify-content: center;
 
-    transition: all 0.2s ease;
+    transition: all 0.25s ease;
     color: var(--text-color);
+    box-shadow: 0 2px 4px var(--shadow-color);
 }
 
 .page-btn:hover {
     background-color: var(--hover-bg-color);
     border-color: var(--primary-color);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(37, 99, 235, 0.2);
 }
 
 /* 마우스를 올렸을 때 스타일 */
@@ -504,10 +627,11 @@ h1 {
 
 /* 현재 페이지(활성화) 버튼 스타일 */
 .page-btn.active {
-    background-color: var(--primary-color);
+    background: var(--gradient-secondary);
     color: white;
-    border-color: var(--primary-color);
-    box-shadow: 0 2px 8px rgba(49, 130, 206, 0.3);
+    border-color: transparent;
+    box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+    transform: translateY(-2px);
 }
 
 /* [추가] 비활성화된 버튼 스타일 */

@@ -1,0 +1,5 @@
+google-cloud-aiplatform
+sqlalchemy
+cloud-sql-python-connector[pymysql]
+google-generativeai
+pymysql

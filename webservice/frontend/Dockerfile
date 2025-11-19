@@ -4,10 +4,11 @@ FROM node:lts-alpine
 # 작업 디렉토리 설정
 WORKDIR /app
 
-# package.json과 package-lock.json 복사
-COPY package.json package-lock.json ./
+# package.json 복사 (package-lock.json이 있으면 함께 복사)
+COPY package.json ./
+COPY package-lock.json* ./
 
-# 의존성 설치 (package-lock.json 기반으로 정확한 버전 설치)
+# 의존성 설치
 RUN npm install
 
 # 소스 코드 복사

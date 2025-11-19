@@ -1,0 +1,1349 @@
+/* ============================================
+   Reset & Base Styles
+   ============================================ */
+/* AI 빌드 앱 내부에만 적용되는 전역 스타일 */
+/* .app * 선택자를 제거하여 메인 페이지에 영향을 주지 않도록 함 */
+.app {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+    background: #f8fafc;
+    color: #1e293b;
+    min-height: 100vh;
+    overflow-x: hidden;
+    /* box-sizing은 필요한 요소에만 개별적으로 적용 */
+}
+
+.app *,
+.app *::before,
+.app *::after {
+    box-sizing: border-box;
+}
+
+/* ============================================
+   Fixed Navigation Bar
+   ============================================ */
+.navbar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    background: #ffffff;
+    border-bottom: 1px solid #e2e8f0;
+    padding: 1rem 2rem;
+    z-index: 1000;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.nav-brand {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #1e293b;
+    letter-spacing: -0.5px;
+}
+
+.navbar-actions {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+/* Skip Button in Navigation Bar */
+.skip-button-nav {
+    padding: 0.6rem 1.2rem;
+    background: #ffffff;
+    color: #64748b;
+    border: 2px solid #e2e8f0;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.25s ease;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+}
+
+.skip-button-nav:hover {
+    background: #f8fafc;
+    border-color: #2563eb;
+    color: #2563eb;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 10px rgba(37, 99, 235, 0.2);
+}
+
+/* Theme Toggle Button in Navigation Bar */
+.theme-toggle-button-nav {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    padding: 0;
+    background: #ffffff;
+    color: #64748b;
+    border: 2px solid #e2e8f0;
+    border-radius: 8px;
+    font-size: 1.2rem;
+    cursor: pointer;
+    transition: all 0.25s ease;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+}
+
+.theme-toggle-button-nav:hover {
+    background: #f8fafc;
+    border-color: #2563eb;
+    color: #2563eb;
+    transform: translateY(-1px) rotate(15deg);
+    box-shadow: 0 4px 10px rgba(37, 99, 235, 0.2);
+}
+
+/* Home Button in Navigation Bar */
+.home-button-nav {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.6rem 1.2rem;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: #ffffff;
+    border: none;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    text-decoration: none;
+    cursor: pointer;
+    transition: all 0.25s ease;
+    box-shadow: 0 2px 6px rgba(102, 126, 234, 0.3);
+}
+
+.home-button-nav:hover {
+    background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.home-icon {
+    font-size: 1rem;
+}
+
+/* ============================================
+   Phase 1: Intro Screen
+   ============================================ */
+.intro-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding-top: 80px;
+    cursor: pointer;
+    transition: opacity 0.5s ease-out;
+}
+
+.intro-container.fade-out {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.intro-message {
+    background: #ffffff;
+    border-radius: 20px;
+    padding: 3rem;
+    max-width: 600px;
+    text-align: center;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
+    border: 1px solid #e2e8f0;
+}
+
+.intro-ai-name {
+    font-size: 1.3rem;
+    font-weight: 600;
+    color: #2563eb;
+    margin-bottom: 1.5rem;
+}
+
+.intro-content {
+    font-size: 1.1rem;
+    line-height: 1.8;
+    color: #1e293b;
+}
+
+/* ============================================
+   Phase 1: Chat UI
+   ============================================ */
+.chat-container {
+    width: 100%;
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 50vh 2rem 50vh 2rem;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.chat-message {
+    display: flex;
+    margin-bottom: 2rem;
+    animation: slideUp 0.4s ease-out;
+}
+
+.chat-message.ai {
+    justify-content: flex-start;
+}
+
+.chat-message.user {
+    justify-content: flex-end;
+}
+
+/* Avatar Styles */
+.chat-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    margin: 0 12px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+}
+
+.chat-avatar.ai {
+    background: linear-gradient(135deg, #3b82f6, #2563eb);
+    color: white;
+}
+
+.chat-avatar.user {
+    background: #cbd5e1;
+    color: #64748b;
+}
+
+/* Chat Bubble */
+.chat-bubble {
+    max-width: 70%;
+    padding: 1.2rem 1.5rem;
+    border-radius: 16px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+}
+
+.chat-bubble.ai {
+    background: #ffffff;
+    color: #1e293b;
+    border: 1px solid #e2e8f0;
+}
+
+.chat-bubble.user {
+    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+    color: #ffffff;
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+}
+
+.chat-text {
+    font-size: 1rem;
+    line-height: 1.6;
+}
+
+
+/* Options Container */
+.options-container {
+    display: flex;
+    flex-direction: column;
+    gap: 0.8rem;
+    margin-top: 1.2rem;
+}
+
+.option-button {
+    background: linear-gradient(135deg, #e2e8f0, #cbd5e1);
+    color: #1e293b;
+    border: none;
+    border-radius: 10px;
+    padding: 14px 24px;
+    font-size: 0.95rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.25s ease;
+    text-align: left;
+}
+
+.option-button:hover {
+    background: #2563eb;
+    color: #f8fafc;
+    transform: scale(1.03);
+}
+
+/* ============================================
+   Phase 2: Sidebar Stacks
+   ============================================ */
+.sidebar-layout {
+    display: flex;
+    position: fixed;
+    top: 80px;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    overflow: hidden;
+}
+
+.sidebar-stack {
+    background: #ffffff;
+    border-right: 1px solid #e2e8f0;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+    overflow: visible;
+    transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.sidebar-stack.slide-in {
+    animation: slideInFromLeft 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes slideInFromLeft {
+    from {
+        transform: translateX(-100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+/* Stack 1: 320px width */
+.sidebar-stack-1 {
+    width: 320px;
+}
+
+/* Stack 2: 350px width */
+.sidebar-stack-2 {
+    width: 350px;
+}
+
+/* Stack 3: 380px width */
+.sidebar-stack-3 {
+    width: 380px;
+}
+
+/* Stack 4: Fills remaining space */
+.sidebar-stack-4 {
+    flex: 1;
+    min-width: 500px;
+}
+
+.sidebar-header {
+    padding: 1.5rem;
+    border-bottom: 1px solid #e2e8f0;
+    background: #f8fafc;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+.sidebar-title {
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: #1e293b;
+}
+
+.sidebar-content {
+    padding: 1.5rem;
+    overflow-y: auto;
+    flex: 1;
+}
+
+/* Form Controls */
+.form-group {
+    margin-bottom: 1.5rem;
+}
+
+.form-label {
+    display: block;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #475569;
+    margin-bottom: 0.5rem;
+}
+
+.form-radio,
+.form-checkbox {
+    display: flex;
+    align-items: center;
+    margin-bottom: 0.6rem;
+    cursor: pointer;
+}
+
+.form-radio input,
+.form-checkbox input {
+    margin-right: 0.6rem;
+    cursor: pointer;
+}
+
+.form-select {
+    width: 100%;
+    padding: 0.7rem;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    background: #ffffff;
+    font-size: 0.95rem;
+    color: #1e293b;
+    transition: border-color 0.2s;
+}
+
+.form-select:focus {
+    outline: none;
+    border-color: #2563eb;
+}
+
+/* Primary Button */
+.btn-primary {
+    width: 100%;
+    padding: 1rem;
+    background: #2563eb;
+    color: #f8fafc;
+    border: none;
+    border-radius: 10px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.25s ease;
+    margin-top: 1rem;
+}
+
+.btn-primary:hover {
+    background: #1d4ed8;
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(37, 99, 235, 0.3);
+}
+
+.btn-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Secondary Button */
+.btn-secondary {
+    padding: 0.7rem 1.2rem;
+    background: #e2e8f0;
+    color: #1e293b;
+    border: none;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-secondary:hover {
+    background: #cbd5e1;
+}
+
+/* Toggle Switch */
+.toggle-switch {
+    position: relative;
+    display: inline-block;
+    width: 50px;
+    height: 24px;
+}
+
+.toggle-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.toggle-slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #cbd5e1;
+    transition: 0.3s;
+    border-radius: 24px;
+}
+
+.toggle-slider:before {
+    position: absolute;
+    content: '';
+    height: 18px;
+    width: 18px;
+    left: 3px;
+    bottom: 3px;
+    background-color: white;
+    transition: 0.3s;
+    border-radius: 50%;
+}
+
+.toggle-switch input:checked + .toggle-slider {
+    background-color: #2563eb;
+}
+
+.toggle-switch input:checked + .toggle-slider:before {
+    transform: translateX(26px);
+}
+
+/* ============================================
+   Animations
+   ============================================ */
+@keyframes slideUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes pulse {
+    0%,
+    100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.5;
+    }
+}
+
+.pulse {
+    animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+/* ============================================
+   Responsive Design
+   ============================================ */
+@media (max-width: 768px) {
+    .navbar {
+        padding: 1rem;
+    }
+
+    .nav-brand {
+        font-size: 1.2rem;
+    }
+
+    .intro-message {
+        padding: 2rem;
+        margin: 1rem;
+    }
+
+    .chat-container {
+        padding: 100px 1rem 1rem;
+    }
+
+    .chat-bubble {
+        max-width: 85%;
+    }
+
+    .sidebar-stack-1,
+    .sidebar-stack-2,
+    .sidebar-stack-3 {
+        width: 100%;
+    }
+
+    .sidebar-layout {
+        flex-direction: column;
+    }
+}
+
+/* ============================================
+   Help Tooltip System (초보자용 설명)
+   ============================================ */
+.help-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+    color: white;
+    border-radius: 50%;
+    font-size: 0.8rem;
+    font-weight: bold;
+    cursor: help;
+    margin-left: 0.5rem;
+    transition: all 0.2s ease;
+    position: relative;
+    flex-shrink: 0;
+}
+
+.help-icon:hover {
+    transform: scale(1.1);
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+}
+
+/* Tooltip Container */
+.tooltip-wrapper {
+    position: relative;
+    display: inline-block;
+    z-index: 1;
+}
+
+/* Portal Tooltip (rendered in body) */
+.tooltip-portal {
+    pointer-events: none;
+    animation: tooltipSimpleFadeIn 0.2s ease;
+}
+
+@keyframes tooltipSimpleFadeIn {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+.tooltip-content {
+    background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+    color: #ffffff;
+    padding: 1.25rem 1.5rem;
+    border-radius: 12px;
+    font-size: 0.9rem;
+    line-height: 1.8;
+    white-space: pre-line;
+    width: 450px;
+    max-width: 90vw;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+    text-align: left;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    position: relative;
+}
+
+.tooltip-content::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 20px;
+    border: 8px solid transparent;
+    border-top-color: #1e293b;
+}
+
+/* 아래쪽으로 표시되는 툴팁 */
+.tooltip-content.tooltip-below::after {
+    top: auto;
+    bottom: 100%;
+    border-top-color: transparent;
+    border-bottom-color: #1e293b;
+}
+
+/* 우측으로 표시되는 툴팁 (물음표 옆) */
+.tooltip-content-right {
+    background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+    color: #ffffff;
+    padding: 1.25rem 1.5rem;
+    border-radius: 12px;
+    font-size: 0.9rem;
+    line-height: 1.8;
+    white-space: pre-line;
+    width: 450px;
+    max-width: 90vw;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+    text-align: left;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    position: relative;
+}
+
+.tooltip-content-right::before {
+    content: '';
+    position: absolute;
+    top: 12px;
+    left: -8px;
+    border: 8px solid transparent;
+    border-right-color: #1e293b;
+}
+
+.tooltip-content strong {
+    color: #a5b4fc;
+    display: block;
+    margin-bottom: 0.5rem;
+    font-size: 0.95rem;
+    font-weight: 700;
+}
+
+.tooltip-content p {
+    margin: 0;
+    margin-bottom: 0.75rem;
+}
+
+.tooltip-content p:last-child {
+    margin-bottom: 0;
+}
+
+/* Section Header with Help */
+.section-header-with-help {
+    display: flex;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.section-header-with-help h3 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+    color: #1e293b;
+}
+
+.section-header-with-help .form-label {
+    white-space: nowrap;
+}
+
+/* Option with Help */
+.option-with-help {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.option-label {
+    display: flex;
+    align-items: center;
+    flex: 1;
+}
+
+/* ============================================
+   Build Guide (사용법 안내)
+   ============================================ */
+.build-guide-container {
+    flex: 1;
+    overflow-y: auto;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    padding: 2rem;
+    min-height: 100%;
+}
+
+.guide-header {
+    text-align: center;
+    margin-bottom: 3rem;
+    color: #ffffff;
+}
+
+.guide-title {
+    font-size: 2.5rem;
+    font-weight: 800;
+    margin-bottom: 0.5rem;
+    text-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+}
+
+.guide-subtitle {
+    font-size: 1.2rem;
+    opacity: 0.95;
+    font-weight: 400;
+}
+
+.guide-content {
+    max-width: 900px;
+    margin: 0 auto;
+}
+
+.guide-section {
+    background: rgba(255, 255, 255, 0.95);
+    border-radius: 16px;
+    padding: 2rem;
+    margin-bottom: 2rem;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+    backdrop-filter: blur(10px);
+}
+
+.guide-section-header {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+    padding-bottom: 1rem;
+    border-bottom: 2px solid #e2e8f0;
+}
+
+.guide-icon {
+    font-size: 2rem;
+}
+
+.guide-section-header h2 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #1e293b;
+    margin: 0;
+}
+
+.guide-section-body {
+    color: #475569;
+    line-height: 1.7;
+}
+
+.guide-item {
+    margin-bottom: 1.5rem;
+    padding: 1.25rem;
+    background: #f8fafc;
+    border-radius: 12px;
+    border-left: 4px solid #667eea;
+}
+
+.guide-item:last-child {
+    margin-bottom: 0;
+}
+
+.guide-item h3 {
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: #1e293b;
+    margin-bottom: 0.75rem;
+}
+
+.guide-item p {
+    margin-bottom: 0.75rem;
+    color: #64748b;
+}
+
+.guide-item ul {
+    margin-left: 1.5rem;
+    margin-top: 0.75rem;
+}
+
+.guide-item li {
+    margin-bottom: 0.5rem;
+    color: #64748b;
+}
+
+.guide-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.guide-item-small {
+    padding: 1rem;
+    background: #f8fafc;
+    border-radius: 12px;
+    border-left: 4px solid #764ba2;
+}
+
+.guide-item-small h3 {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #1e293b;
+    margin-bottom: 0.5rem;
+}
+
+.guide-item-small p {
+    font-size: 0.9rem;
+    color: #64748b;
+    margin: 0;
+}
+
+.guide-note {
+    margin-top: 1rem;
+    padding: 1rem;
+    background: #fef3c7;
+    border-radius: 8px;
+    color: #92400e;
+    font-size: 0.95rem;
+    border-left: 4px solid #f59e0b;
+}
+
+.guide-start-box {
+    text-align: center;
+    padding: 2rem;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 16px;
+    color: #ffffff;
+}
+
+.guide-start-text {
+    font-size: 1.3rem;
+    margin-bottom: 2rem;
+    line-height: 1.8;
+}
+
+.guide-start-text strong {
+    font-size: 1.5rem;
+    color: #fef3c7;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.guide-features {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 1.5rem;
+    margin-top: 2rem;
+}
+
+.guide-feature {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1.25rem;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 8px;
+    backdrop-filter: blur(10px);
+    font-weight: 600;
+}
+
+.guide-feature-icon {
+    font-size: 1.2rem;
+}
+
+.guide-tips {
+    display: grid;
+    gap: 1rem;
+}
+
+.guide-tip {
+    padding: 1.25rem;
+    background: #f0f9ff;
+    border-radius: 12px;
+    border-left: 4px solid #0ea5e9;
+}
+
+.guide-tip strong {
+    display: block;
+    font-size: 1.1rem;
+    color: #0c4a6e;
+    margin-bottom: 0.5rem;
+}
+
+.guide-tip p {
+    color: #075985;
+    margin: 0;
+}
+
+/* 다크모드 지원 - AI 빌드 앱 내부에만 적용 */
+.app.dark-theme {
+    background: #0f172a;
+    color: #f1f5f9;
+}
+
+.app.dark-theme .navbar {
+    background: #1e293b;
+    border-bottom-color: #334155;
+}
+
+.app.dark-theme .nav-brand {
+    color: #f1f5f9;
+}
+
+.app.dark-theme .skip-button-nav {
+    background: #334155;
+    color: #cbd5e1;
+    border-color: #475569;
+}
+
+.app.dark-theme .skip-button-nav:hover {
+    background: #475569;
+    border-color: #60a5fa;
+    color: #60a5fa;
+}
+
+.app.dark-theme .theme-toggle-button-nav {
+    background: #334155;
+    color: #fbbf24;
+    border-color: #475569;
+}
+
+.app.dark-theme .theme-toggle-button-nav:hover {
+    background: #475569;
+    border-color: #fbbf24;
+    color: #fcd34d;
+    transform: translateY(-1px) rotate(-15deg);
+}
+
+/* 사이드바 스택 다크모드 */
+.app.dark-theme .sidebar-stack {
+    background: #1e293b;
+    border-right-color: #334155;
+}
+
+.app.dark-theme .sidebar-header {
+    background: #0f172a;
+    border-bottom-color: #334155;
+}
+
+.app.dark-theme .sidebar-title {
+    color: #f1f5f9;
+}
+
+.app.dark-theme .sidebar-content {
+    background: #1e293b;
+    color: #e2e8f0;
+}
+
+/* 폼 요소 다크모드 */
+.app.dark-theme .form-label {
+    color: #cbd5e1;
+}
+
+.app.dark-theme .form-select {
+    background: #0f172a;
+    border-color: #475569;
+    color: #f1f5f9;
+}
+
+.app.dark-theme .form-select:focus {
+    border-color: #60a5fa;
+    background: #1e293b;
+}
+
+.app.dark-theme input[type="text"],
+.app.dark-theme input[type="number"],
+.app.dark-theme input[type="range"] {
+    background: #0f172a;
+    border-color: #475569;
+    color: #f1f5f9;
+}
+
+.app.dark-theme input[type="text"]:focus,
+.app.dark-theme input[type="number"]:focus {
+    border-color: #60a5fa;
+    background: #1e293b;
+}
+
+.app.dark-theme .btn-secondary {
+    background: #334155;
+    color: #e2e8f0;
+}
+
+.app.dark-theme .btn-secondary:hover {
+    background: #475569;
+    color: #f1f5f9;
+}
+
+.app.dark-theme .toggle-slider {
+    background-color: #475569;
+}
+
+.app.dark-theme .toggle-switch input:checked + .toggle-slider {
+    background-color: #60a5fa;
+}
+
+/* 옵션 버튼 다크모드 */
+.app.dark-theme .option-button {
+    background: linear-gradient(135deg, #334155, #475569);
+    color: #e2e8f0;
+    border: 1px solid #475569;
+}
+
+.app.dark-theme .option-button:hover {
+    background: #2563eb;
+    color: #f8fafc;
+}
+
+/* 일반 텍스트 다크모드 - 사이드바 내부에만 적용 */
+.app.dark-theme {
+    color: #e2e8f0;
+}
+
+.app.dark-theme .sidebar-content p,
+.app.dark-theme .sidebar-content span,
+.app.dark-theme .sidebar-content div:not(.sidebar-title):not(.nav-brand) {
+    color: #cbd5e1;
+}
+
+/* 체크박스/라디오 버튼 다크모드 - 사이드바 내부에만 적용 */
+.app.dark-theme .sidebar-content input[type="checkbox"],
+.app.dark-theme .sidebar-content input[type="radio"] {
+    accent-color: #60a5fa;
+}
+
+/* 섹션 헤더 다크모드 */
+.app.dark-theme .section-header-with-help {
+    color: #f1f5f9;
+}
+
+.app.dark-theme .section-header-with-help .form-label {
+    color: #f1f5f9;
+}
+
+/* 도움말 아이콘 다크모드 */
+.app.dark-theme .help-icon {
+    color: #94a3b8;
+}
+
+.app.dark-theme .help-icon:hover {
+    color: #60a5fa;
+}
+
+/* 인라인 스타일로 설정된 색상 덮어쓰기 (다크모드) - 사이드바 내부에만 적용 */
+.app.dark-theme .sidebar-content [style*="color: #64748b"],
+.app.dark-theme .sidebar-content [style*="color:#64748b"],
+.app.dark-theme .sidebar-header [style*="color: #64748b"],
+.app.dark-theme .sidebar-header [style*="color:#64748b"] {
+    color: #94a3b8 !important;
+}
+
+.app.dark-theme .sidebar-content [style*="color: #475569"],
+.app.dark-theme .sidebar-content [style*="color:#475569"] {
+    color: #cbd5e1 !important;
+}
+
+.app.dark-theme .sidebar-content [style*="color: #1e293b"],
+.app.dark-theme .sidebar-content [style*="color:#1e293b"] {
+    color: #f1f5f9 !important;
+}
+
+.app.dark-theme .sidebar-content [style*="background: linear-gradient"][style*="#667eea"] {
+    background: linear-gradient(135deg, #475569 0%, #334155 100%) !important;
+}
+
+/* SidebarStack2, SidebarStack3, SidebarStack4의 특정 요소들 */
+.app.dark-theme .sidebar-content [style*="background: linear-gradient"][style*="#667eea"],
+.app.dark-theme .sidebar-content [style*="background:linear-gradient"][style*="#667eea"] {
+    background: linear-gradient(135deg, #475569 0%, #334155 100%) !important;
+}
+
+.app.dark-theme .sidebar-content [style*="background: linear-gradient"][style*="#d1fae5"],
+.app.dark-theme .sidebar-content [style*="background:linear-gradient"][style*="#d1fae5"] {
+    background: linear-gradient(135deg, #1e3a2e 0%, #2d4a3e 100%) !important;
+}
+
+.app.dark-theme .sidebar-content [style*="background: linear-gradient"][style*="#fef3c7"],
+.app.dark-theme .sidebar-content [style*="background:linear-gradient"][style*="#fef3c7"] {
+    background: linear-gradient(135deg, #3a3520 0%, #4a4228 100%) !important;
+}
+
+.app.dark-theme .sidebar-content [style*="color: white"],
+.app.dark-theme .sidebar-content [style*="color:white"],
+.app.dark-theme .sidebar-content [style*="color: #ffffff"],
+.app.dark-theme .sidebar-content [style*="color:#ffffff"] {
+    color: #f1f5f9 !important;
+}
+
+/* 진행도 표시 다크모드 - 사이드바 내부에만 적용 */
+.app.dark-theme .sidebar-content [style*="color: #059669"],
+.app.dark-theme .sidebar-content [style*="color:#059669"] {
+    color: #34d399 !important;
+}
+
+.app.dark-theme .sidebar-content [style*="color: #2563eb"],
+.app.dark-theme .sidebar-content [style*="color:#2563eb"] {
+    color: #60a5fa !important;
+}
+
+/* 카드 및 박스 다크모드 - 사이드바 내부에만 적용 */
+.app.dark-theme .sidebar-content [style*="background: white"],
+.app.dark-theme .sidebar-content [style*="background:white"],
+.app.dark-theme .sidebar-content [style*="background: #ffffff"],
+.app.dark-theme .sidebar-content [style*="background:#ffffff"],
+.app.dark-theme .sidebar-content [style*="background: #f8fafc"],
+.app.dark-theme .sidebar-content [style*="background:#f8fafc"] {
+    background: #1e293b !important;
+}
+
+.app.dark-theme .sidebar-content [style*="border: 1px solid #e2e8f0"],
+.app.dark-theme .sidebar-content [style*="border:1px solid #e2e8f0"],
+.app.dark-theme .sidebar-content [style*="borderColor: #e2e8f0"],
+.app.dark-theme .sidebar-content [style*="border-color: #e2e8f0"],
+.app.dark-theme .sidebar-content [style*="borderColor:#e2e8f0"] {
+    border-color: #475569 !important;
+}
+
+.app.dark-theme .sidebar-content [style*="border: 1px solid #cbd5e1"],
+.app.dark-theme .sidebar-content [style*="border:1px solid #cbd5e1"] {
+    border-color: #475569 !important;
+}
+
+/* 슬라이더 다크모드 - 사이드바 내부에만 적용 */
+.app.dark-theme .sidebar-content input[type="range"] {
+    background: #334155;
+}
+
+.app.dark-theme .sidebar-content input[type="range"]::-webkit-slider-thumb {
+    background: #60a5fa;
+}
+
+.app.dark-theme .sidebar-content input[type="range"]::-moz-range-thumb {
+    background: #60a5fa;
+}
+
+/* 제품 카드 다크모드 (SidebarStack3) */
+.app.dark-theme .sidebar-content > div > div {
+    background: #1e293b;
+    border-color: #475569;
+}
+
+/* 검색 입력창 다크모드 - 사이드바 내부에만 적용 */
+.app.dark-theme .sidebar-content input[type="search"],
+.app.dark-theme .sidebar-content input[type="text"],
+.app.dark-theme .sidebar-content input[placeholder] {
+    background: #0f172a;
+    border-color: #475569;
+    color: #f1f5f9;
+}
+
+.app.dark-theme .sidebar-content input[type="search"]:focus,
+.app.dark-theme .sidebar-content input[type="text"]:focus,
+.app.dark-theme .sidebar-content input[placeholder]:focus {
+    border-color: #60a5fa;
+    background: #1e293b;
+}
+
+/* 버튼 다크모드 - 사이드바 내부에만 적용 */
+.app.dark-theme .sidebar-content button:not(.btn-primary):not(.theme-toggle-button-nav):not(.home-button-nav):not(.skip-button-nav) {
+    background: #334155;
+    color: #e2e8f0;
+    border-color: #475569;
+}
+
+.app.dark-theme .sidebar-content button:not(.btn-primary):not(.theme-toggle-button-nav):not(.home-button-nav):not(.skip-button-nav):hover {
+    background: #475569;
+    color: #f1f5f9;
+}
+
+/* 링크 다크모드 - 사이드바 내부에만 적용 */
+.app.dark-theme .sidebar-content a {
+    color: #60a5fa;
+}
+
+.app.dark-theme .sidebar-content a:hover {
+    color: #93c5fd;
+}
+
+/* 스크롤바 다크모드 - AI 빌드 앱 내부에만 적용 */
+.app.dark-theme .sidebar-content ::-webkit-scrollbar,
+.app.dark-theme .sidebar-layout ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+.app.dark-theme .sidebar-content ::-webkit-scrollbar-track,
+.app.dark-theme .sidebar-layout ::-webkit-scrollbar-track {
+    background: #0f172a;
+}
+
+.app.dark-theme .sidebar-content ::-webkit-scrollbar-thumb,
+.app.dark-theme .sidebar-layout ::-webkit-scrollbar-thumb {
+    background: #475569;
+    border-radius: 4px;
+}
+
+.app.dark-theme .sidebar-content ::-webkit-scrollbar-thumb:hover,
+.app.dark-theme .sidebar-layout ::-webkit-scrollbar-thumb:hover {
+    background: #64748b;
+}
+
+@media (prefers-color-scheme: dark) {
+    /* 시스템 다크모드일 때, AI 빌드 앱이 명시적으로 라이트 모드가 아닐 때만 적용 */
+    .app:not(.dark-theme) .navbar {
+        background: #1e293b;
+        border-bottom-color: #334155;
+    }
+
+    .app:not(.dark-theme) .nav-brand {
+        color: #f1f5f9;
+    }
+
+    .app:not(.dark-theme) .skip-button-nav {
+        background: #334155;
+        color: #cbd5e1;
+        border-color: #475569;
+    }
+
+    .app:not(.dark-theme) .skip-button-nav:hover {
+        background: #475569;
+        border-color: #60a5fa;
+        color: #60a5fa;
+    }
+
+    .app:not(.dark-theme) .theme-toggle-button-nav {
+        background: #334155;
+        color: #fbbf24;
+        border-color: #475569;
+    }
+
+    .app:not(.dark-theme) .theme-toggle-button-nav:hover {
+        background: #475569;
+        border-color: #fbbf24;
+        color: #fcd34d;
+        transform: translateY(-1px) rotate(-15deg);
+    }
+
+    .build-guide-container {
+        background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+    }
+
+    .guide-section {
+        background: rgba(30, 41, 59, 0.95);
+        color: #e2e8f0;
+    }
+
+    .guide-section-header h2 {
+        color: #f1f5f9;
+    }
+
+    .guide-item {
+        background: #1e293b;
+        border-left-color: #818cf8;
+    }
+
+    .guide-item h3 {
+        color: #f1f5f9;
+    }
+
+    .guide-item p,
+    .guide-item li {
+        color: #cbd5e1;
+    }
+
+    .guide-item-small {
+        background: #1e293b;
+        border-left-color: #a78bfa;
+    }
+
+    .guide-item-small h3 {
+        color: #f1f5f9;
+    }
+
+    .guide-item-small p {
+        color: #cbd5e1;
+    }
+
+    .guide-tip {
+        background: #1e3a5f;
+        border-left-color: #38bdf8;
+    }
+
+    .guide-tip strong {
+        color: #bae6fd;
+    }
+
+    .guide-tip p {
+        color: #93c5fd;
+    }
+}
+
+/* 반응형 디자인 */
+@media (max-width: 768px) {
+    .build-guide-container {
+        padding: 1rem;
+    }
+
+    .guide-title {
+        font-size: 1.8rem;
+    }
+
+    .guide-subtitle {
+        font-size: 1rem;
+    }
+
+    .guide-section {
+        padding: 1.5rem;
+    }
+
+    .guide-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .guide-features {
+        flex-direction: column;
+        align-items: stretch;
+    }
+}

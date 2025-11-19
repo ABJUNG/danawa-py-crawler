@@ -1,7 +1,25 @@
-## 1. 프로젝트 개요
-프로젝트명: PC 부품 가격 정보 포털 (Danawa Parts Price Portal)
+# PC 부품 가격 정보 포털 + AI 견적 추천 시스템
 
-목표: 다나와에서 주요 PC 부품들의 정보를 카테고리별로 수집하여, 사용자가 카테고리 선택, 상세 필터링, 키워드 검색을 통해 원하는 부품 정보를 쉽게 찾을 수 있는 웹 서비스를 제공한다.
+> **Danawa Parts Price Portal with AI PC Builder**
+
+## 📌 프로젝트 개요
+
+**다나와**에서 주요 PC 부품 정보를 자동으로 수집하고, **Google Gemini AI**를 활용하여 사용자 맞춤형 PC 견적을 추천하는 풀스택 웹 서비스입니다.
+
+### 주요 기능
+- 🤖 **AI 견적 추천**: 사용자 용도/예산에 맞춘 PC 구성 자동 추천
+- 🔍 **실시간 부품 검색**: 9개 카테고리, 200+ 상세 스펙 필터링
+- 💬 **AI 챗봇**: 부품 호환성 검사 및 견적 상담
+- 📊 **벤치마크 데이터**: CPU/GPU 성능 비교
+- 📝 **퀘이사존 리뷰**: 전문가 리뷰 AI 요약
+
+### 기술 스택
+- **Frontend**: React 18
+- **Backend**: Spring Boot 3.2, Java 17
+- **Database**: MySQL 8.0
+- **Crawler**: Python 3.11, Playwright
+- **AI**: Google Gemini 1.5 Flash
+- **DevOps**: Docker Compose (로컬 실행)
 
 ## 2. 주요 기능 명세
 ### 2-1. 데이터 수집 (웹 크롤러)
@@ -69,11 +87,69 @@ created_at	TIMESTAMP	DEFAULT now()	생성 시각
 updated_at	TIMESTAMP	DEFAULT now()	수정 시각
 
 Sheets로 내보내기
-## 5. 향후 개선 과제 (v3.0)
-프론트엔드 페이지네이션: 한 번에 200개씩 불러온 데이터를 20개씩 끊어서 보여주는 페이지 번호(1, 2, 3...) 기능을 추가한다.
+## 5. 빠른 시작 (Quick Start)
 
-상세 필터 확장: '제조사' 외에 카테고리별 주요 속성(예: CPU 소켓 타입, RAM 용량 등)을 필터 옵션으로 추가한다.
+### 전제 조건
+- Docker Desktop 설치
+- Google Gemini API 키 ([발급 링크](https://aistudio.google.com/app/apikey))
 
-가격 범위 슬라이더: 사용자가 원하는 가격대의 상품만 볼 수 있도록 필터링 기능을 추가한다.
+### 실행 방법
 
-크롤러 자동화: Python 스크립트가 매일 특정 시간에 자동으로 실행되도록 서버에 스케줄링을 설정한다.
+```bash
+# 1. 프로젝트 클론
+git clone https://github.com/k-melon7129/danawa-py-crawler.git
+cd danawa-py-crawler
+
+# 2. 환경 변수 설정
+cp .env.example .env
+# .env 파일에 GOOGLE_API_KEY=your_api_key 입력
+
+# 3. 서비스 실행
+docker-compose up -d db backend frontend
+
+# 4. 데이터 수집 (크롤러 실행)
+docker-compose run --rm crawler
+```
+
+### 접속 URL
+- **웹 서비스**: http://localhost:3000
+- **백엔드 API**: http://localhost:8080
+
+> **상세 가이드**: [LOCAL_SETUP_GUIDE.md](./LOCAL_SETUP_GUIDE.md) 참고
+
+---
+
+## 6. 프로젝트 변경 이력
+
+### v3.0 (2025-11-17) - 로컬 모드 전환 🏠
+- **k-melon 브랜치 통합**: AI 견적 추천 기능 추가
+- **클라우드 → 로컬 전환**:
+  - Cloud SQL → 로컬 MySQL (Docker)
+  - Vertex AI → Google Gemini API
+  - Cloud Run → Docker Compose
+- **크롤러 개선**:
+  - 퀘이사존 리뷰 수집 안정화
+  - 파워 제품 키워드 추출 강화
+  - 디버깅 로그 대폭 개선
+
+### v2.x (2025-11-14) - 클라우드 배포
+- Cloud Run 기반 자동 크롤링
+- Vertex AI 통합
+
+### v1.x (2025-10) - 초기 버전
+- 기본 크롤러 + 웹 서비스
+
+---
+
+## 7. 기여자
+
+- **ABJUNG**: 초기 프로젝트 설계 및 크롤러 개발
+- **k-melon7129**: AI 견적 추천 기능 개발
+- **AI Assistant**: 로컬 모드 전환 및 통합 작업
+
+---
+
+## 8. 라이선스
+
+이 프로젝트는 교육 목적으로 제작되었습니다.  
+다나와 및 퀘이사존의 이용약관을 준수하여 사용하세요.

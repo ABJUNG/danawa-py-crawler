@@ -31,6 +31,9 @@ public class PartResponseDto {
 
     // --- 👇 5. [신규] 벤치마크 리스트 필드 추가 ---
     private List<BenchmarkResultDto> benchmarks;
+    
+    // --- [신규] AI 추천 점수 (0-100) ---
+    private Double aiScore;
 
     /**
      * Entity(Part)를 DTO(PartResponseDto)로 변환하는 생성자
@@ -77,5 +80,19 @@ public class PartResponseDto {
         } else {
             this.benchmarks = new ArrayList<>(); // 빈 리스트 보장
         }
+    }
+    
+    /**
+     * 정적 팩토리 메서드: Part 엔티티를 PartResponseDto로 변환
+     */
+    public static PartResponseDto fromEntity(Part entity) {
+        return new PartResponseDto(entity);
+    }
+    
+    /**
+     * AI 추천 점수 설정
+     */
+    public void setAiScore(Double aiScore) {
+        this.aiScore = aiScore;
     }
 }
